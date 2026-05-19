@@ -1939,7 +1939,7 @@ def _hathway_click_retrack_main_tv(page):
                     ok1 = modal.get_by_role('button', name=ok_re).first
                     if ok1.count() > 0 and ok1.is_visible(timeout=1500):
                         ok1.click(timeout=8000, force=True)
-                        page.wait_for_timeout(2000)
+                        page.wait_for_timeout(3000)
                         return True
                     # Native input variants.
                     for loc in (
@@ -1948,7 +1948,7 @@ def _hathway_click_retrack_main_tv(page):
                     ):
                         if loc.count() > 0 and loc.is_visible(timeout=1500):
                             loc.click(timeout=8000, force=True)
-                            page.wait_for_timeout(2000)
+                            page.wait_for_timeout(3000)
                             return True
             except Exception:
                 pass
@@ -1958,7 +1958,7 @@ def _hathway_click_retrack_main_tv(page):
                 okb = page.get_by_role('button', name=ok_re).first
                 if okb.count() > 0 and okb.is_visible(timeout=1500):
                     okb.click(timeout=8000, force=True)
-                    page.wait_for_timeout(2000)
+                    page.wait_for_timeout(3000)
                     return True
             except Exception:
                 pass
