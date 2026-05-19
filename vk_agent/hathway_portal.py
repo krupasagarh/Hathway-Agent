@@ -1871,6 +1871,155 @@ def _hathway_click_activate_main_tv(page):
     return False
 
 
+def _hathway_click_retrack_main_tv(page):
+    """
+    Main TV area → click blue 'Retrack' → popup Confirm.
+
+    Selectors are intentionally tolerant:
+    - Retrack: /^Retrack$/i by button role (fallback to has_text)
+    - Confirm: /^Confirm$/i by button role (fallback to has_text)
+    """
+    if not _hathway_ensure_main_tv_tab(page):
+        return False
+
+    cleanup_hathway_ui(page)
+    retrack_re = re.compile(r'^\s*Retrack\s*$', re.I)
+    clicked = False
+
+    # Bouquet / plan grid can be inside iframe(s); scan all DOM roots we use elsewhere.
+    for ctx in _hathway_pack_dom_roots(page):
+        # 1) Preferred: role=button with exact label.
+        try:
+            loc = ctx.get_by_role('button', name=retrack_re).first
+            if loc.count() > 0 and loc.is_visible(timeout=2500):
+                loc.scroll_into_view_if_needed(timeout=5000)
+                loc.click(timeout=10000, force=True)
+                clicked = True
+                break
+        except Exception:
+            pass
+
+        # 2) Fallback: any clickable element containing the label.
+        try:
+            loc = ctx.locator(
+                'button, a, span, td, input[type="button"], input[type="submit"], [role="button"], [role="menuitem"]'
+            ).filter(has_text=retrack_re).first
+            if loc.count() > 0 and loc.is_visible(timeout=2500):
+                loc.scroll_into_view_if_needed(timeout=5000)
+                loc.click(timeout=10000, force=True)
+                clicked = True
+                break
+        except Exception:
+            continue
+
+    if not clicked:
+        return False
+
+    # Click Confirm on the confirmation popup.
+    confirm_re = re.compile(r'^\s*Confirm\s*$', re.I)
+    page.wait_for_timeout(400)
+
+    confirmed = False
+
+    def _try_click_second_retrack_success_ok(timeout_ms: int) -> bool:
+        """
+        After the first Confirm click, portal can show a second success modal.
+        Task requirement: wait for either modal text containing "retrack" or a generic OK button,
+        then click OK. Never fail the overall operation if it doesn't appear in time.
+        """
+        ok_re = re.compile(r'^\s*OK\s*$', re.I)
+        retrack_text_re = re.compile(r'\bretrack\b', re.I)
+        deadline = time.monotonic() + max(0.5, timeout_ms / 1000.0)
+
+        while time.monotonic() < deadline:
+            # Preferred: visible modal/dialog that contains "retrack" text.
+            try:
+                modal = page.locator('[role="dialog"], .ui-dialog, .modal').filter(has_text=retrack_text_re).last
+                if modal.count() > 0:
+                    ok1 = modal.get_by_role('button', name=ok_re).first
+                    if ok1.count() > 0 and ok1.is_visible(timeout=1500):
+                        ok1.click(timeout=8000, force=True)
+                        page.wait_for_timeout(2000)
+                        return True
+                    # Native input variants.
+                    for loc in (
+                        modal.locator('input[type="button"][value*="OK" i]').first,
+                        modal.locator('input[type="submit"][value*="OK" i]').first,
+                    ):
+                        if loc.count() > 0 and loc.is_visible(timeout=1500):
+                            loc.click(timeout=8000, force=True)
+                            page.wait_for_timeout(2000)
+                            return True
+            except Exception:
+                pass
+
+            # Fallback: any visible OK button on the page.
+            try:
+                okb = page.get_by_role('button', name=ok_re).first
+                if okb.count() > 0 and okb.is_visible(timeout=1500):
+                    okb.click(timeout=8000, force=True)
+                    page.wait_for_timeout(2000)
+                    return True
+            except Exception:
+                pass
+
+            page.wait_for_timeout(250)
+
+        return False
+
+    # 1) Required selector (per task): role=button, exact label.
+    try:
+        conf = page.get_by_role('button', name=confirm_re).first
+        if conf.count() > 0 and conf.is_visible(timeout=3000):
+            conf.click(timeout=10000, force=True)
+            confirmed = True
+    except Exception:
+        pass
+
+    # 2) Dialog-scoped: role=dialog/.ui-dialog/.modal + Confirm.
+    if not confirmed:
+        try:
+            dialog = page.locator('[role="dialog"], .ui-dialog, .modal').filter(
+                has_text=re.compile(r'\bConfirm\b', re.I)
+            ).last
+            if dialog.count() > 0:
+                for cand in (
+                    dialog.get_by_role('button', name=confirm_re).first,
+                    dialog.locator('button, input[type="button"], input[type="submit"]').filter(
+                        has_text=confirm_re
+                    ).first,
+                ):
+                    if cand.count() > 0 and cand.is_visible(timeout=3000):
+                        cand.click(timeout=10000, force=True)
+                        confirmed = True
+                        break
+        except Exception:
+            pass
+
+    # 3) Fallback: any element containing 'Confirm' (best-effort).
+    if not confirmed:
+        try:
+            cand = page.locator('button, input[type="button"], input[type="submit"]').filter(has_text=confirm_re).first
+            if cand.count() > 0 and cand.is_visible(timeout=3000):
+                cand.click(timeout=10000, force=True)
+                confirmed = True
+        except Exception:
+            pass
+
+    if not confirmed:
+        return False
+
+    # Optional second success modal: click OK if it appears soon.
+    try:
+        _try_click_second_retrack_success_ok(
+            timeout_ms=int(os.getenv('HATHWAY_RETRACK_SECOND_OK_TIMEOUT_MS', '12000'))
+        )
+    except Exception:
+        pass
+
+    return True
+
+
 def hathway_temp_deactivate_stb(page, stb_id, reason_label=None):
     """
     Pack Management → search STB → Main TV → Deactivate → reason → confirms → OK.
@@ -1990,7 +2139,7 @@ def check_hathway_temp_deactivate(stb_id, account_id=None):
         close_hathway_browser(playwright, browser)
 
 
-def hathway_temp_activate_stb(page, stb_id, reason_label=None):
+def hathway_temp_activate_stb(page, stb_id, reason_label=None, retrack_after=False):
     """
     Pack Management → search STB → Main TV → Activate → reason → confirms → OK.
 
@@ -2070,6 +2219,15 @@ def hathway_temp_activate_stb(page, stb_id, reason_label=None):
             page.wait_for_timeout(max(0, post_confirm_ms))
 
             _hathway_click_ok_service_change_complete_message(page, 'activate')
+            retrack_attempted = False
+            retrack_ok = False
+            if retrack_after:
+                retrack_attempted = True
+                try:
+                    retrack_ok = _hathway_click_retrack_main_tv(page)
+                except Exception:
+                    retrack_ok = False
+
             page.wait_for_timeout(600)
             cleanup_hathway_ui(page)
 
@@ -2078,7 +2236,14 @@ def hathway_temp_activate_stb(page, stb_id, reason_label=None):
                 'provider': 'hathway',
                 'search_value': stb_id,
                 'matched_cid': stb_id,
-                'message': 'STB Activated Successfully.',
+                'message': (
+                    'STB Activated Successfully.'
+                    + (
+                        ' Retrack confirmed.'
+                        if retrack_ok
+                        else (' Retrack not found.' if retrack_attempted else '')
+                    )
+                ),
             }
         finally:
             _hathway_clear_modal_markers(page)
@@ -2091,8 +2256,10 @@ def hathway_temp_activate_stb(page, stb_id, reason_label=None):
         return {'success': False, 'error': str(e), 'provider': 'hathway', 'search_value': stb_id}
 
 
-def check_hathway_temp_activate(stb_id, account_id=None):
+def check_hathway_temp_activate(stb_id, account_id=None, retrack_after=None):
     """Login, Pack Management, temp activate STB, close browser."""
+    if retrack_after is None:
+        retrack_after = os.getenv('HATHWAY_AUTO_RETRACK_AFTER_ACTIVATE', '').strip().lower() in ('1', 'true', 'yes', 'y')
     playwright, browser, page = launch_hathway_browser()
     try:
         if not login_hathway(page, account_id=account_id):
@@ -2102,7 +2269,7 @@ def check_hathway_temp_activate(stb_id, account_id=None):
                 'provider': 'hathway',
                 'search_value': stb_id,
             }
-        return hathway_temp_activate_stb(page, stb_id)
+        return hathway_temp_activate_stb(page, stb_id, retrack_after=retrack_after)
     except Exception as e:
         try:
             page.screenshot(path='hathway_activate_fatal.png')
@@ -6064,7 +6231,7 @@ def hathway_remove_pack_and_terminate_stb(page, stb_id, cancel_reason=None, term
         return {'success': False, 'error': str(e), 'provider': 'hathway', 'search_value': stb_id}
 
 
-def hathway_renew_stb_pack(page, stb_id, renew_reason=None):
+def hathway_renew_stb_pack(page, stb_id, renew_reason=None, retrack_after=False):
     """
     Pack Management → **Main TV** or **Customer Details** → **Quick Recharge** → Plan Details **submit**
     → **Confirmation** → **Confirm** → **OK**.
@@ -6137,6 +6304,15 @@ def hathway_renew_stb_pack(page, stb_id, renew_reason=None):
                 err = f'Renew via Quick Recharge failed ({key}).'
             return {'success': False, 'error': err, 'provider': 'hathway', 'search_value': stb_id}
 
+        retrack_attempted = False
+        retrack_ok = False
+        if retrack_after:
+            retrack_attempted = True
+            try:
+                retrack_ok = _hathway_click_retrack_main_tv(page)
+            except Exception:
+                retrack_ok = False
+
         page.wait_for_timeout(800)
         cleanup_hathway_ui(page)
         return {
@@ -6144,7 +6320,14 @@ def hathway_renew_stb_pack(page, stb_id, renew_reason=None):
             'provider': 'hathway',
             'search_value': stb_id,
             'matched_cid': stb_id,
-            'message': 'Expired plan renew submitted in portal (Quick Recharge flow).',
+            'message': (
+                'Expired plan renew submitted in portal (Quick Recharge flow).'
+                + (
+                    ' Retrack confirmed.'
+                    if retrack_ok
+                    else (' Retrack not found.' if retrack_attempted else '')
+                )
+            ),
         }
     except Exception as e:
         try:
@@ -6155,8 +6338,10 @@ def hathway_renew_stb_pack(page, stb_id, renew_reason=None):
         return {'success': False, 'error': str(e), 'provider': 'hathway', 'search_value': stb_id}
 
 
-def check_hathway_renew_stb(stb_id, account_id=None):
+def check_hathway_renew_stb(stb_id, account_id=None, retrack_after=None):
     """Login, Pack Management → Quick Recharge renew flow for STB, close browser."""
+    if retrack_after is None:
+        retrack_after = os.getenv('HATHWAY_AUTO_RETRACK_AFTER_RENEW', '').strip().lower() in ('1', 'true', 'yes', 'y')
     playwright, browser, page = launch_hathway_browser()
     try:
         if not login_hathway(page, account_id=account_id):
@@ -6166,7 +6351,7 @@ def check_hathway_renew_stb(stb_id, account_id=None):
                 'provider': 'hathway',
                 'search_value': stb_id,
             }
-        return hathway_renew_stb_pack(page, stb_id)
+        return hathway_renew_stb_pack(page, stb_id, retrack_after=retrack_after)
     except Exception as e:
         try:
             page.screenshot(path='hathway_renew_fatal.png')
@@ -6192,6 +6377,106 @@ def check_hathway_remove_pack_and_terminate(stb_id, account_id=None):
     except Exception as e:
         try:
             page.screenshot(path='hathway_remove_pack_terminate_fatal.png')
+        except Exception:
+            pass
+        return {'success': False, 'error': str(e), 'provider': 'hathway', 'search_value': stb_id}
+    finally:
+        close_hathway_browser(playwright, browser)
+
+
+def hathway_retrack_stb(page, stb_id, *, retrack_after=False):
+    """
+    Standalone retrack operation:
+    Pack Management → search STB → Main TV → Retrack → Confirm → OK/close.
+
+    The retrack_after parameter is unused (kept for API symmetry); callers should pass retrack_after=False.
+    """
+    stb_id = (stb_id or '').strip()
+    if not stb_id:
+        return {'success': False, 'error': 'Empty STB / VC id', 'provider': 'hathway', 'search_value': ''}
+
+    try:
+        cleanup_hathway_ui(page)
+        _hathway_click_vc_mac_search_mode(page)
+        page.wait_for_timeout(300)
+
+        _hathway_fill_pack_search(page, stb_id)
+        _hathway_click_search(page)
+        try:
+            page.wait_for_load_state('networkidle', timeout=20000)
+        except Exception:
+            page.wait_for_load_state('domcontentloaded', timeout=15000)
+        page.wait_for_timeout(1200)
+        cleanup_hathway_ui(page)
+
+        body = page.locator('body').inner_text(timeout=15000)
+        portal_msg = _hathway_search_portal_user_message(body)
+        if portal_msg:
+            return {'success': False, 'error': portal_msg, 'provider': 'hathway', 'search_value': stb_id}
+
+        if re.search(r'no\s+record|not\s+found|invalid|no\s+match', body, re.I):
+            return {
+                'success': False,
+                'error': 'No matching subscriber for this STB / VC id.',
+                'provider': 'hathway',
+                'search_value': stb_id,
+            }
+
+        if not _hathway_ensure_main_tv_tab(page):
+            return {
+                'success': False,
+                'error': 'Could not open Main TV tab.',
+                'provider': 'hathway',
+                'search_value': stb_id,
+            }
+
+        page.wait_for_timeout(600)
+        cleanup_hathway_ui(page)
+
+        if not _hathway_click_retrack_main_tv(page):
+            try:
+                page.screenshot(path='hathway_retrack_control_not_found.png')
+            except Exception:
+                pass
+            return {
+                'success': False,
+                'error': 'Retrack control not found on Main TV.',
+                'provider': 'hathway',
+                'search_value': stb_id,
+            }
+
+        page.wait_for_timeout(600)
+        cleanup_hathway_ui(page)
+        return {
+            'success': True,
+            'provider': 'hathway',
+            'search_value': stb_id,
+            'matched_cid': stb_id,
+            'message': 'Retrack confirmed.',
+        }
+    except Exception as e:
+        try:
+            page.screenshot(path='hathway_retrack_error.png')
+        except Exception:
+            pass
+        return {'success': False, 'error': str(e), 'provider': 'hathway', 'search_value': stb_id}
+
+
+def check_hathway_retrack_stb(stb_id, account_id=None):
+    """Login, Pack Management, standalone retrack flow, close browser."""
+    playwright, browser, page = launch_hathway_browser()
+    try:
+        if not login_hathway(page, account_id=account_id):
+            return {
+                'success': False,
+                'error': 'Hathway login failed — check credentials and CAPTCHA.',
+                'provider': 'hathway',
+                'search_value': stb_id,
+            }
+        return hathway_retrack_stb(page, stb_id)
+    except Exception as e:
+        try:
+            page.screenshot(path='hathway_retrack_fatal.png')
         except Exception:
             pass
         return {'success': False, 'error': str(e), 'provider': 'hathway', 'search_value': stb_id}

@@ -27,6 +27,7 @@ from hathway_portal import (
     check_hathway_renew_stb,
     check_hathway_temp_activate,
     check_hathway_temp_deactivate,
+    check_hathway_retrack_stb,
     close_hathway_browser,
     hathway_login_once,
     launch_hathway_browser,
@@ -720,6 +721,52 @@ def handle_update(chat_id, text, reply_id):
         return
 
     if (
+        lower == '/hath_retrack'
+        or lower.startswith('/hath_retrack ')
+        or t == lbl(chat_id, 'hathway_retrack')
+    ):
+        parts = t.split(maxsplit=1)
+        arg = parts[1].strip() if len(parts) > 1 else ''
+        if arg and looks_like_hathway_stb_id(arg):
+            close_persistent_session(chat_id)
+            set_mode(chat_id, 'idle')
+            log_bot_request(action='hathway_retrack_stb', identifier=arg, chat_id=chat_id)
+            send_message(
+                chat_id,
+                T(chat_id, 'hathway_retrack_running', stb=_tg_escape(arg)),
+                reply_to_message_id=reply_id,
+                reply_markup=reply_markup_for_chat(chat_id),
+            )
+            try:
+                result = check_hathway_retrack_stb(arg, account_id=_effective_hath_account_id(chat_id))
+                reply_text = format_clear_result_for_chat(
+                    chat_id,
+                    arg,
+                    result,
+                    ok_head_key='portal_action_ok_head',
+                    fail_head_key='portal_action_fail_head',
+                )
+            except Exception as exc:
+                reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
+            send_message(
+                chat_id,
+                reply_text,
+                reply_to_message_id=reply_id,
+                reply_markup=reply_markup_for_chat(chat_id),
+                parse_mode='HTML',
+            )
+            return
+        close_persistent_session(chat_id)
+        set_mode(chat_id, 'hathway_retrack_wait')
+        send_message(
+            chat_id,
+            T(chat_id, 'hathway_retrack_wait_prompt'),
+            reply_to_message_id=reply_id,
+            reply_markup=reply_markup_for_chat(chat_id),
+        )
+        return
+
+    if (
         lower == '/hath_renew'
         or lower.startswith('/hath_renew ')
         or t == lbl(chat_id, 'hathway_renew_stb')
@@ -953,6 +1000,43 @@ def handle_update(chat_id, text, reply_id):
         )
         try:
             result = check_hathway_temp_activate(cid, account_id=_effective_hath_account_id(chat_id))
+            reply_text = format_clear_result_for_chat(
+                chat_id,
+                cid,
+                result,
+                ok_head_key='portal_action_ok_head',
+                fail_head_key='portal_action_fail_head',
+            )
+        except Exception as exc:
+            reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
+        set_mode(chat_id, 'idle')
+        send_message(
+            chat_id,
+            reply_text,
+            reply_to_message_id=reply_id,
+            reply_markup=reply_markup_for_chat(chat_id),
+            parse_mode='HTML',
+        )
+        return
+
+    if mode == 'hathway_retrack_wait':
+        if not cid or not looks_like_hathway_stb_id(cid):
+            send_message(
+                chat_id,
+                T(chat_id, 'hathway_retrack_need_stb'),
+                reply_to_message_id=reply_id,
+                reply_markup=reply_markup_for_chat(chat_id),
+            )
+            return
+        log_bot_request(action='hathway_retrack_stb', identifier=cid, chat_id=chat_id)
+        send_message(
+            chat_id,
+            T(chat_id, 'hathway_retrack_running', stb=_tg_escape(cid)),
+            reply_to_message_id=reply_id,
+            reply_markup=reply_markup_for_chat(chat_id),
+        )
+        try:
+            result = check_hathway_retrack_stb(cid, account_id=_effective_hath_account_id(chat_id))
             reply_text = format_clear_result_for_chat(
                 chat_id,
                 cid,

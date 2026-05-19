@@ -70,6 +70,7 @@ def reply_markup_portal_keyboard(chat_id):
         [{'text': L('hathway_single')}],
         [{'text': L('hathway_deactivate')}],
         [{'text': L('hathway_activate')}],
+        [{'text': L('hathway_retrack')}],
         [{'text': L('hathway_renew_stb')}],
         [{'text': L('hathway_remove_terminate')}],
         [{'text': L('done')}],
@@ -108,7 +109,7 @@ STRINGS = {
         'menu_main': (
             '<b>Menu</b>\n'
             '{hathway_multi} · {hathway_dashboard} · {hathway_single} · {hathway_deactivate} · {hathway_activate} · '
-            '{hathway_renew_stb} · {hathway_remove_terminate} · {done}'
+            '{hathway_retrack} · {hathway_renew_stb} · {hathway_remove_terminate} · {done}'
         ),
         'session_closed': 'Session closed. Use the menu to start again.',
         'session_idle_timeout': '<b>Session closed</b> (idle). Open login from the menu if needed.',
@@ -191,6 +192,12 @@ STRINGS = {
             'then <b>{hathway_activate}</b> or <code>/hath_activate</code>.'
         ),
         'hathway_activate_need_stb': 'Send STB / VC id.',
+        'hathway_retrack_wait_prompt': 'Send STB / VC id.',
+        'hathway_retrack_running': 'Wait for Retrack confirmation. <code>{stb}</code>',
+        'hathway_retrack_wrong_portal': (
+            '<b>Retrack</b> is only on <b>Hathway</b>. Tap <b>{menu}</b>, then <b>{portal_hathway}</b>, '
+            'then <b>{hathway_retrack}</b> or <code>/hath_retrack</code>.'
+        ),
         'hathway_renew_wait_prompt': 'Send STB / VC id.',
         'hathway_renew_running': 'Wait for the quick renewal process to complete. <code>{stb}</code>',
         'hathway_renew_wrong_portal': (
@@ -343,6 +350,12 @@ STRINGS = {
             'ನಂತರ <b>{hathway_activate}</b> ಅಥವಾ <code>/hath_activate</code>.'
         ),
         'hathway_activate_need_stb': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'hathway_retrack_wait_prompt': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'hathway_retrack_running': 'Retrack ದೃಢೀಕರಣಕ್ಕಾಗಿ ಕಾಯಿರಿ. <code>{stb}</code>',
+        'hathway_retrack_wrong_portal': (
+            '<b>Retrack</b> ಕೇವಲ <b>ಹ್ಯಾಥ್‌ವೇ</b>ಯಲ್ಲಿ. ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_hathway}</b>, '
+            'ನಂತರ <b>{hathway_retrack}</b> ಅಥವಾ <code>/hath_retrack</code>.'
+        ),
         'hathway_renew_wait_prompt': 'STB / VC id ಕಳುಹಿಸಿ.',
         'hathway_renew_running': 'ತ್ವರಿತ ರಿನ್ಯೂ ಪೂರ್ಣಗೊಳ್ಳುವವರೆಗೆ ಕಾಯಿರಿ. <code>{stb}</code>',
         'hathway_renew_wrong_portal': (
@@ -409,6 +422,7 @@ LABELS = {
         'hathway_single': 'Single STB status',
         'hathway_deactivate': 'Temp STB deactivate',
         'hathway_activate': 'Activate Back',
+        'hathway_retrack': 'Retrack',
         'hathway_renew_stb': 'Renew expired plan',
         'hathway_remove_terminate': 'Remove pack & terminate',
         'menu': 'Menu',
@@ -421,6 +435,7 @@ LABELS = {
         'hathway_single': 'ಒಂದು STB ಚೆಕ್',
         'hathway_deactivate': 'ತಾತ್ಕಾಲಿಕ STB ನಿಷ್ಕ್ರಿಯ',
         'hathway_activate': 'Activate Back',
+        'hathway_retrack': 'Retrack',
         'hathway_renew_stb': 'Renew expired plan',
         'hathway_remove_terminate': 'Remove pack & terminate',
         'menu': 'ಮೆನು',
