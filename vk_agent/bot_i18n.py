@@ -66,9 +66,11 @@ def reply_markup_portal_keyboard(chat_id):
     L = lambda k: lbl(chat_id, k)
     rows = [
         [{'text': L('hathway_multi')}],
+        [{'text': L('hathway_dashboard')}],
         [{'text': L('hathway_single')}],
         [{'text': L('hathway_deactivate')}],
         [{'text': L('hathway_activate')}],
+        [{'text': L('hathway_renew_stb')}],
         [{'text': L('hathway_remove_terminate')}],
         [{'text': L('done')}],
         [{'text': L('menu')}, {'text': L('change_language')}],
@@ -93,43 +95,23 @@ def is_pick_kannada(t):
 
 STRINGS = {
     'en': {
-        'welcome_choose': (
-            '<b>Welcome — Hathway Agent</b>\n\n'
-            '<b>Choose your language</b> (you can change it later from the menu).\n\n'
-            'Tap <b>English</b> or <b>ಕನ್ನಡ</b> below.'
-        ),
+        'welcome_choose': '<b>Hathway Agent</b>\nTap <b>English</b> or <b>ಕನ್ನಡ</b>.',
         'language_set_en': '<b>Language: English</b>',
         'language_set_kn': '<b>Language: ಕನ್ನಡ</b>',
-        'please_choose_lang': (
-            '<b>ಭಾಷೆ ಆಯ್ಕೆಮಾಡಿ / Choose language</b>\n'
-            'Tap <b>English</b> or <b>ಕನ್ನಡ</b> below.'
-        ),
+        'please_choose_lang': '<b>Choose language</b> — Tap <b>English</b> or <b>ಕನ್ನಡ</b>.',
         'help_intro': (
-            '<b>Hathway Agent</b> (partners portal — Pack Management)\n\n'
-            'Use <b>{hathway_multi}</b> for a persistent login, then send <b>STB / VC ids</b> one per message '
-            '(e.g. <code>N70130838231</code> or <code>T403030313577</code>). '
-            '<b>{hathway_single}</b> runs one audit in a fresh browser. '
-            '<b>{hathway_deactivate}</b>, <b>{hathway_activate}</b>, and <b>{hathway_remove_terminate}</b> '
-            'open a browser for those flows. Tap <b>{menu}</b> for this help and <b>{change_language}</b> '
-            'for English / ಕನ್ನಡ.\n\n'
-            'Credentials in <code>.env</code>: <code>HATHWAY_USER</code>, <code>HATHWAY_PASS</code>, '
-            'optional <code>HATHWAY_LOGIN_URL</code>. Multiple operators: <code>HATHWAY_ACCOUNTS_FILE</code> (JSON) '
-            'and <code>/hath_accounts</code>, <code>/hath_account ID</code>.'
+            '<b>Hathway</b> — Tap a row, then send the <b>STB / VC id</b> when asked.\n'
+            '<b>{menu}</b>: short help · <b>{change_language}</b>: English / ಕನ್ನಡ'
         ),
-        'help_active_railtel': 'Active portal: <b>Railtel (Railwire)</b>\n\n',
-        'help_active_hathway': 'Active portal: <b>Hathway (Pack Management)</b>\n\n',
+        'help_active_railtel': '',
+        'help_active_hathway': '',
         'menu_main': (
-            '<b>Menu</b> — Hathway\n\n'
-            '<b>{hathway_multi}</b> · <b>{hathway_single}</b> · <b>{hathway_deactivate}</b> · '
-            '<b>{hathway_activate}</b> · <b>{hathway_remove_terminate}</b> · <b>{done}</b>\n\n'
-            'Bottom row: <b>{menu}</b> and <b>{change_language}</b>.'
+            '<b>Menu</b>\n'
+            '{hathway_multi} · {hathway_dashboard} · {hathway_single} · {hathway_deactivate} · {hathway_activate} · '
+            '{hathway_renew_stb} · {hathway_remove_terminate} · {done}'
         ),
-        'session_closed': 'Portal session closed. Choose an option from the menu when needed.',
-        'session_idle_timeout': (
-            '<b>Session closed (idle).</b> There was no activity for several minutes, so the portal '
-            'browser was closed. Use <b>Multi</b> or <b>Single</b> from the menu when you need it again. '
-            'If you just sent a command, send it again after starting a new session.'
-        ),
+        'session_closed': 'Session closed. Use the menu to start again.',
+        'session_idle_timeout': '<b>Session closed</b> (idle). Open login from the menu if needed.',
         'multi_wrong_railtel_row': (
             'That is the <b>Railtel</b> login row. Tap <b>{menu}</b>, then <b>{portal_hathway}</b>, '
             'then use <b>{hathway_multi}</b> so Hathway does not use Railtel login.'
@@ -138,21 +120,15 @@ STRINGS = {
             'That is the <b>Hathway</b> login row. Tap <b>{menu}</b>, then <b>{portal_railtel}</b>, '
             'then use <b>{railtel_multi}</b> so Railtel does not use Hathway login.'
         ),
-        'logging_in_railtel': 'Logging in (Railtel)… A Chromium window will open. This may take a minute.',
-        'logging_in_hathway': 'Logging in (Hathway)… A Chromium window will open. This may take a minute.',
-        'logged_in_hathway': (
-            '<b>Logged in (Hathway).</b> Send one <b>STB / VC id</b> per message for '
-            '<b>STB status</b> and pack details from Main TV. Tap <b>{done}</b> when finished.'
-        ),
+        'logging_in_railtel': 'Please wait — logging in…',
+        'logging_in_hathway': 'Please wait — logging in…',
+        'logged_in_hathway': 'Logged in. Send one STB / VC id per message. Tap <b>{done}</b> when finished.',
         'logged_in_railtel': (
             '<b>Logged in (Railtel).</b> Send subscriber ID or phone (one per message). '
             'Tap <b>{done}</b> when finished.'
         ),
         'multi_start_fail': '<b>Could not start multi session.</b>\n{err}',
-        'multi_login_not_ready': (
-            '<b>Login is still in progress.</b> Please wait — you can send subscriber ID, phone, '
-            'or STB / VC id only after the bot shows the logged-in message.'
-        ),
+        'multi_login_not_ready': 'Please wait — login still starting. Send ids only after “Logged in”.',
         'single_wrong_railtel': (
             'That is the <b>Railtel</b> single-audit button. Tap <b>{menu}</b>, then <b>{portal_hathway}</b>, '
             'then use <b>{hathway_single}</b>.'
@@ -161,9 +137,7 @@ STRINGS = {
             'That is the <b>Hathway</b> single-audit button. Tap <b>{menu}</b>, then <b>{portal_railtel}</b>, '
             'then use <b>{railtel_single}</b>.'
         ),
-        'single_prompt_hathway': (
-            '<b>Single STB status.</b> Send one <b>STB / VC id</b> (e.g. <code>N70130838231</code>).'
-        ),
+        'single_prompt_hathway': 'Send <b>STB / VC id</b>.',
         'single_prompt_railtel': '<b>Single audit.</b> Send one subscriber ID or phone number.',
         'clear_railtel_only': (
             '<b>Clear session</b> is only on <b>Railtel</b>. Tap <b>{menu}</b>, then <b>{portal_railtel}</b>, '
@@ -190,89 +164,68 @@ STRINGS = {
             'That looks like a <b>Hathway</b> STB / VC id (N + 11 digits or T + 12 digits). '
             'Tap <b>{menu}</b>, then <b>{portal_hathway}</b>, then send it.'
         ),
-        'wait_hathway_multi': 'Send an <b>STB / VC id</b> (one per message), or tap <b>{done}</b>.',
+        'wait_hathway_multi': 'Send STB / VC id, or tap <b>{done}</b>.',
         'wait_railtel_multi': 'Send a subscriber ID or phone, or tap <b>{done}</b>.',
-        'running_audit': 'Running audit for <code>{cid}</code>…',
+        'running_audit': 'Wait for the STB Status. <code>{cid}</code>',
         'audit_error': '<b>Audit error</b>\n<code>{exc}</code>',
-        'single_wait_hathway': 'Send a valid <b>STB / VC id</b> (e.g. <code>N70130838231</code>).',
+        'single_wait_hathway': 'Send a valid STB / VC id.',
         'single_wait_railtel': (
             'Send a valid subscriber ID or phone '
             '(e.g. <code>ka.user</code>, 10 digits, or <code>+91</code>…).'
         ),
-        'running_single_audit': 'Running single audit for <code>{cid}</code>…',
+        'running_single_audit': 'Wait for the STB Status. <code>{cid}</code>',
         'clear_send_id': 'Send subscriber ID or phone to clear session.',
         'clearing': 'Clearing session for <code>{cid}</code>… browser will open.',
         'clear_error': '<b>Clear session error</b>\n<code>{exc}</code>',
-        'hathway_deactivate_wait_prompt': (
-            '<b>Hathway — temp STB deactivate.</b> Send one <b>STB / VC id</b> (e.g. <code>N70152403369</code>). '
-            'A browser will open, log in, and run <b>Deactivate</b> on Main TV with reason '
-            '<i>Payment not received by customer</i> (override via <code>HATHWAY_DEACTIVATE_REASON</code> in .env). '
-            'Or use <code>/hath_deactivate YOUR_STB</code> in one message.'
-        ),
-        'hathway_deactivate_running': 'Running Hathway temp deactivate for <code>{stb}</code>… browser will open.',
+        'hathway_deactivate_wait_prompt': 'Send STB / VC id.',
+        'hathway_deactivate_running': 'Wait for the deactivation process to complete. <code>{stb}</code>',
         'hathway_deactivate_wrong_portal': (
             '<b>Temp STB deactivate</b> is only on <b>Hathway</b>. Tap <b>{menu}</b>, then <b>{portal_hathway}</b>, '
             'then <b>{hathway_deactivate}</b> or <code>/hath_deactivate</code>.'
         ),
-        'hathway_deactivate_need_stb': 'Send a valid <b>STB / VC id</b> (N + 11 digits or T + 12 digits), or tap Menu.',
-        'hathway_activate_wait_prompt': (
-            '<b>Hathway — Activate Back.</b> Send one <b>STB / VC id</b>. A browser will open, then '
-            '<b>Activate</b> on Main TV with reason <i>Payment received from customer/Promise to pay</i> '
-            '(override via <code>HATHWAY_ACTIVATE_REASON</code> in .env). '
-            'Or <code>/hath_activate YOUR_STB</code> in one message.'
-        ),
-        'hathway_activate_running': 'Running Activate Back for <code>{stb}</code>… browser will open.',
+        'hathway_deactivate_need_stb': 'Send STB / VC id.',
+        'hathway_activate_wait_prompt': 'Send STB / VC id.',
+        'hathway_activate_running': 'Wait for the activation process to complete. <code>{stb}</code>',
         'hathway_activate_wrong_portal': (
             '<b>Activate Back</b> is only on <b>Hathway</b>. Tap <b>{menu}</b>, then <b>{portal_hathway}</b>, '
             'then <b>{hathway_activate}</b> or <code>/hath_activate</code>.'
         ),
-        'hathway_activate_need_stb': 'Send a valid <b>STB / VC id</b> (N + 11 digits or T + 12 digits), or tap Menu.',
-        'hathway_remove_terminate_wait_prompt': (
-            '<b>Hathway — remove pack &amp; terminate STB.</b> Send one <b>STB / VC id</b>. '
-            'Pack removal tries <b>ALL Cancel</b> on Main TV when that control is visible (and when '
-            '<code>HATHWAY_REMOVE_PACK_METHOD</code> is not forced to bouquet). In <code>auto</code>, if ALL Cancel '
-            'does not complete, it falls back to the bouquet row <b>▼ → CANCEL</b>. If ALL Cancel is not shown, '
-            'only the bouquet path is used. Then <b>Terminate</b> with reason '
-            '<i>Customers Request - Price Issue</i> (<code>HATHWAY_TERMINATE_REASON</code>). '
-            'Bouquet path reason: <code>HATHWAY_CANCEL_PACK_REASON</code> (default <i>Customer request</i>). '
-            'Or <code>/hath_remove_terminate YOUR_STB</code> in one message.\n\n'
-            '<i>Env:</i> <code>HATHWAY_REMOVE_PACK_METHOD</code> = <code>auto</code> (default), '
-            '<code>all_cancel</code>, or <code>bouquet</code>. '
-            '<code>HATHWAY_ALL_CANCEL_MODAL_WAIT_MS</code> (default 3000) between ALL Cancel popups; '
-            '<code>HATHWAY_ALL_CANCEL_POST_TOOLBAR_MS</code> (default 2200) after clicking ALL Cancel before the sheet. '
-            '<code>HATHWAY_ALL_CANCEL_OK_WAIT_MS</code> (default 3000) after the sheet appears, before clicking OK. '
-            '<i>After pack removal (Terminate):</i> <code>HATHWAY_TERMINATE_AFTER_PACK_MS</code> (default 2800). '
-            '<code>HATHWAY_BOUQUET_MENU_WAIT_MS</code> (4500), <code>HATHWAY_CANCEL_MENU_POLL_MS</code> (20000).'
+        'hathway_activate_need_stb': 'Send STB / VC id.',
+        'hathway_renew_wait_prompt': 'Send STB / VC id.',
+        'hathway_renew_running': 'Wait for the quick renewal process to complete. <code>{stb}</code>',
+        'hathway_renew_wrong_portal': (
+            '<b>Renew expired plan</b> is only on <b>Hathway</b>. Tap <b>{hathway_renew_stb}</b> or '
+            '<code>/hath_renew</code>.'
         ),
-        'hathway_remove_terminate_running': (
-            'Removing pack and terminating STB for <code>{stb}</code>… browser will open.'
-        ),
+        'hathway_renew_need_stb': 'Send STB / VC id.',
+        'hathway_remove_terminate_wait_prompt': 'Send STB / VC id.',
+        'hathway_remove_terminate_running': 'Wait for pack removal and termination to complete. <code>{stb}</code>',
         'hathway_remove_terminate_wrong_portal': (
             '<b>Remove pack &amp; terminate</b> is only on <b>Hathway</b>. Tap <b>{menu}</b>, then <b>{portal_hathway}</b>, '
             'then <b>{hathway_remove_terminate}</b> or <code>/hath_remove_terminate</code>.'
         ),
-        'hathway_remove_terminate_need_stb': 'Send a valid <b>STB / VC id</b> (N + 11 digits or T + 12 digits), or tap Menu.',
-        'idle_prompt_hathway': 'Choose an option below, or send an <b>STB / VC id</b> for a quick Hathway audit.',
+        'hathway_remove_terminate_need_stb': 'Send STB / VC id.',
+        'idle_prompt_hathway': 'Tap a button or send an STB / VC id.',
         'idle_prompt_railtel': (
             'Choose an option below or send a subscriber ID / phone for a quick single audit.'
         ),
-        'railtel_input_on_hathway': (
-            'That looks like a <b>Railtel</b> subscriber id or phone. This bot is <b>Hathway only</b> — send '
-            'an <b>STB / VC id</b> (N + 11 digits or T + 12 digits). Use the <b>Railtel Agent</b> bot for subscriber audits.'
-        ),
-        'login_fail_hathway': 'Hathway login failed — check HATHWAY_USER, HATHWAY_PASS, and CAPTCHA.',
+        'railtel_input_on_hathway': 'This bot needs an <b>STB / VC id</b> (not a phone / subscriber id).',
+        'login_fail_hathway': 'Login failed — check user, password and CAPTCHA.',
         'login_fail_railtel': 'Login failed — check credentials and CAPTCHA.',
         'audit_fail_hathway': 'Hathway audit failed for {search}\nReason: {reason}.',
         'audit_fail_railtel_head': '<b>Audit failed for {search}</b>',
         'audit_fail_railtel_reason': 'Reason: {reason}.',
         'hathway_pack_lines': 'Pack Name: {pack}\nValid upto: {valid}\nSTB Status: {stb}\nLCO Price: {lco}',
-        'hathway_pack_mgmt': (
-            'Hathway — Pack Management\n'
-            'Reference: {ref}\n\n'
-            'Browser is on Pack Management after login. Subscriber status in this bot is not '
-            'automated yet — search in the portal window, or share Pack Management selectors '
-            'to add the same kind of audit as Railtel.'
+        'hathway_pack_mgmt': 'Pack Management — Ref: <code>{ref}</code>',
+        'hathway_dashboard_running': 'Please wait — loading dashboard stats…',
+        'hathway_dashboard_ok': (
+            '<b>Dashboard stats</b>\n'
+            'Active STB: {active}\n'
+            'Inactive: {inactive}\n'
+            'Total STB: {total}\n'
+            'Hathway Wallet balance: {balance}'
         ),
+        'hathway_dashboard_fail': '<b>Dashboard stats failed</b>\n{err}',
         'audit_result_head': '<b>Audit result for {matched}</b>',
         'audit_search_input': 'Search input: {search}',
         'audit_status': 'Status: {status}',
@@ -288,44 +241,29 @@ STRINGS = {
         'clear_fail_input': 'Input: <code>{search}</code>',
         'clear_fail_reason': 'Reason: {err}',
         'clear_fail_matched_line': 'Matched: <code>{mc}</code>',
+        'portal_action_ok_head': '<b>Portal action OK</b>',
+        'portal_action_fail_head': '<b>Portal action failed</b>',
         'na': 'N/A',
         'session_cleared_msg': 'Session cleared.',
     },
     'kn': {
-        'welcome_choose': (
-            '<b>ಸ್ವಾಗತ — ಹ್ಯಾಥ್‌ವೇ ಏಜೆಂಟ್</b>\n\n'
-            '<b>ನಿಮ್ಮ ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ</b> (ಮೆನುವಿನಿಂದ ನಂತರ ಬದಲಾಯಿಸಬಹುದು).\n\n'
-            'ಕೆಳಗೆ <b>English</b> ಅಥವಾ <b>ಕನ್ನಡ</b> ಒತ್ತಿ.'
-        ),
+        'welcome_choose': '<b>ಹ್ಯಾಥ್‌ವೇ ಏಜೆಂಟ್</b>\n<b>English</b> ಅಥವಾ <b>ಕನ್ನಡ</b> ಒತ್ತಿ.',
         'language_set_en': '<b>ಭಾಷೆ: English</b>',
         'language_set_kn': '<b>ಭಾಷೆ: ಕನ್ನಡ</b>',
-        'please_choose_lang': (
-            '<b>ಭಾಷೆ ಆಯ್ಕೆಮಾಡಿ / Choose language</b>\n'
-            'ಕೆಳಗೆ <b>English</b> ಅಥವಾ <b>ಕನ್ನಡ</b> ಒತ್ತಿ.'
-        ),
+        'please_choose_lang': '<b>ಭಾಷೆ ಆಯ್ಕೆಮಾಡಿ</b> — <b>English</b> ಅಥವಾ <b>ಕನ್ನಡ</b>.',
         'help_intro': (
-            '<b>ಹ್ಯಾಥ್‌ವೇ ಏಜೆಂಟ್</b> (ಪಾರ್ಟ್ನರ್ ಪೋರ್ಟಲ್ — ಪ್ಯಾಕ್ ಮ್ಯಾನೇಜ್‌ಮೆಂಟ್)\n\n'
-            '<b>{hathway_multi}</b> — ಬಹು ಲಾಗಿನ್, ನಂತರ ಪ್ರತಿ ಸಂದೇಶಕ್ಕೆ <b>STB / VC id</b> '
-            '(ಉದಾ. <code>N70130838231</code>). <b>{hathway_single}</b> — ಒಂದೇ ಪರಿಶೀಲನೆ. '
-            '<b>{hathway_deactivate}</b>, <b>{hathway_activate}</b>, <b>{hathway_remove_terminate}</b> — '
-            'ಆ ಕ್ರಿಯೆಗಳಿಗೆ ಬ್ರೌಸರ್. <b>{menu}</b> ಈ ಸಹಾಯ, <b>{change_language}</b>.\n\n'
-            '<code>.env</code>: <code>HATHWAY_USER</code>, <code>HATHWAY_PASS</code>, ಐಚ್ಛಿಕ <code>HATHWAY_LOGIN_URL</code>. '
-            'ಅನೇಕ ಖಾತೆಗಳು: <code>HATHWAY_ACCOUNTS_FILE</code>, <code>/hath_accounts</code>, <code>/hath_account ID</code>.'
+            '<b>ಹ್ಯಾಥ್‌ವೇ</b> — ಬಟನ್ ಒತ್ತು, ನಂತರ ಕೇಳಿದಾಗ <b>STB / VC id</b> ಕಳುಹಿಸಿ.\n'
+            '<b>{menu}</b>: ಸಣ್ಣ ಸಹಾಯ · <b>{change_language}</b>: English / ಕನ್ನಡ'
         ),
-        'help_active_railtel': 'ಸಕ್ರಿಯ ಪೋರ್ಟಲ್: <b>ರೈಲ್‌ಟೆಲ್ (ರೈಲ್‌ವೈರ್)</b>\n\n',
-        'help_active_hathway': 'ಸಕ್ರಿಯ ಪೋರ್ಟಲ್: <b>ಹ್ಯಾಥ್‌ವೇ (ಪ್ಯಾಕ್ ಮ್ಯಾನೇಜ್‌ಮೆಂಟ್)</b>\n\n',
+        'help_active_railtel': '',
+        'help_active_hathway': '',
         'menu_main': (
-            '<b>ಮೆನು</b> — ಹ್ಯಾಥ್‌ವೇ\n\n'
-            '<b>{hathway_multi}</b> · <b>{hathway_single}</b> · <b>{hathway_deactivate}</b> · '
-            '<b>{hathway_activate}</b> · <b>{hathway_remove_terminate}</b> · <b>{done}</b>\n\n'
-            'ಕೆಳಗಿನ ಸಾಲು: <b>{menu}</b> ಮತ್ತು <b>{change_language}</b>.'
+            '<b>ಮೆನು</b>\n'
+            '{hathway_multi} · {hathway_dashboard} · {hathway_single} · {hathway_deactivate} · {hathway_activate} · '
+            '{hathway_renew_stb} · {hathway_remove_terminate} · {done}'
         ),
-        'session_closed': 'ಪೋರ್ಟಲ್ ಸೆಷನ್ ಮುಚ್ಚಲಾಗಿದೆ. ಅಗತ್ಯವಿದ್ದಾಗ ಮೆನುವಿನಿಂದ ಆಯ್ಕೆಮಾಡಿ.',
-        'session_idle_timeout': (
-            '<b>ಸೆಷನ್ ಮುಚ್ಚಲಾಗಿದೆ (ನಿಶ್ಚಲ).</b> ಸಾಕಷ್ಟು ನಿಮಿಷಗಳ ಕಾಲ ಚಟುವಟಿಕೆ ಇರಲಿಲ್ಲ — ಪೋರ್ಟಲ್ ಬ್ರೌಸರ್ '
-            'ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಮುಚ್ಚಲಾಗಿದೆ. ಪುನಃ ಬೇಕಾದಾಗ ಮೆನುವಿನಿಂದ <b>ಬಹು ಲಾಗಿನ್</b> ಅಥವಾ '
-            '<b>1 STB ಚೆಕ್ / ಒಂದು ಪರಿಶೀಲನೆ</b> ಆರಂಭಿಸಿ. ಈಗಲೇ ಆಜ್ಞೆ ಕಳುಹಿಸಿದ್ದರೆ, ಹೊಸ ಸೆಷನ್ ನಂತರ ಮತ್ತೆ ಕಳುಹಿಸಿ.'
-        ),
+        'session_closed': 'ಸೆಷನ್ ಮುಚ್ಚಿದೆ. ಮೆನುವಿನಿಂದ ಮತ್ತೆ ಆರಂಭಿಸಿ.',
+        'session_idle_timeout': '<b>ಸೆಷನ್ ಮುಚ್ಚಿದೆ</b> (ನಿಶ್ಚಲ). ಬೇಕಿದ್ದರೆ ಮೆನುವಿನಿಂದ ಲಾಗಿನ್ ಮತ್ತೆ ಆರಂಭಿಸಿ.',
         'multi_wrong_railtel_row': (
             'ಇದು <b>ರೈಲ್‌ಟೆಲ್</b> ಲಾಗಿನ್ ಸಾಲು. ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_hathway}</b>, '
             'ನಂತರ <b>{hathway_multi}</b> — ಹ್ಯಾಥ್‌ವೇಗೆ ರೈಲ್‌ಟೆಲ್ ಲಾಗಿನ್ ಬೇಡ.'
@@ -334,21 +272,15 @@ STRINGS = {
             'ಇದು <b>ಹ್ಯಾಥ್‌ವೇ</b> ಲಾಗಿನ್ ಸಾಲು. ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_railtel}</b>, '
             'ನಂತರ <b>{railtel_multi}</b> — ರೈಲ್‌ಟೆಲ್‌ಗೆ ಹ್ಯಾಥ್‌ವೇ ಲಾಗಿನ್ ಬೇಡ.'
         ),
-        'logging_in_railtel': 'ರೈಲ್‌ಟೆಲ್ ಪೋರ್ಟಲ್‌ಗೆ ಲಾಗಿನ್ ಆಗುತ್ತಿದೆ, ಕಾಯಿರಿ',
-        'logging_in_hathway': 'Hathway ಪೋರ್ಟಲ್‌ಗೆ ಲಾಗಿನ್ ಆಗುತ್ತಿದೆ, ಕಾಯಿರಿ',
-        'logged_in_hathway': (
-            '<b>ಲಾಗಿನ್ (ಹ್ಯಾಥ್‌ವೇ).</b> ಪ್ರತಿ ಸಂದೇಶಕ್ಕೆ ಒಂದು <b>STB / VC id</b> ಕಳುಹಿಸಿ — '
-            '<b>STB Status</b> ಮತ್ತು ಮುಖ್ಯ TV ಪ್ಯಾಕ್ ವಿವರ. ಮುಗಿದಾಗ <b>{done}</b> ಒತ್ತಿ.'
-        ),
+        'logging_in_railtel': 'ದಯವಿಟ್ಟು ಕಾಯಿರಿ — ಲಾಗಿನ್ ಆಗುತ್ತಿದೆ…',
+        'logging_in_hathway': 'ದಯವಿಟ್ಟು ಕಾಯಿರಿ — ಲಾಗಿನ್ ಆಗುತ್ತಿದೆ…',
+        'logged_in_hathway': 'ಲಾಗಿನ್ ಆಯಿತು. ಪ್ರತಿ ಸಂದೇಶಕ್ಕೆ ಒಂದು STB / VC id. ಮುಗಿದಾಗ <b>{done}</b>.',
         'logged_in_railtel': (
             '<b>ಲಾಗಿನ್ (ರೈಲ್‌ಟೆಲ್).</b> ಪ್ರತಿ ಸಂದೇಶಕ್ಕೆ ಗ್ರಾಹಕ ID ಅಥವಾ ಫೋನ್ ಸಂಖ್ಯೆ ಕಳುಹಿಸಿ. '
             'ಮುಗಿದಾಗ <b>{done}</b> ಒತ್ತಿ.'
         ),
         'multi_start_fail': '<b>ಬಹು ಸೆಷನ್ ಪ್ರಾರಂಭಿಸಲಾಗಲಿಲ್ಲ.</b>\n{err}',
-        'multi_login_not_ready': (
-            '<b>ಲಾಗಿನ್ ಇನ್ನೂ ನಡೆಯುತ್ತಿದೆ.</b> ದಯವಿಟ್ಟು ಕಾಯಿರಿ — ಬಾಟ್ “ಲಾಗಿನ್” ಸಂದೇಶ ತೋರಿಸಿದ ನಂತರವೇ '
-            'ಗ್ರಾಹಕ ID, ಫೋನ್, ಅಥವಾ STB / VC id ಕಳುಹಿಸಿ.'
-        ),
+        'multi_login_not_ready': 'ದಯವಿಟ್ಟು ಕಾಯಿರಿ — ಲಾಗಿನ್ ಆಗುತ್ತಿದೆ. “ಲಾಗಿನ್ ಆಯಿತು” ಬಂದ ನಂತರ id ಕಳುಹಿಸಿ.',
         'single_wrong_railtel': (
             'ಇದು <b>ರೈಲ್‌ಟೆಲ್</b> ಒಂದು-ಗ್ರಾಹಕ ಬಟನ್. ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_hathway}</b>, '
             'ನಂತರ <b>{hathway_single}</b> ಬಳಸಿ.'
@@ -357,9 +289,7 @@ STRINGS = {
             'ಇದು <b>ಹ್ಯಾಥ್‌ವೇ</b> ಒಂದು-STB ಬಟನ್. ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_railtel}</b>, '
             'ನಂತರ <b>{railtel_single}</b> ಬಳಸಿ.'
         ),
-        'single_prompt_hathway': (
-            '<b>1 STB ಚೆಕ್.</b> ಒಂದು <b>STB / VC id</b> ಕಳುಹಿಸಿ (ಉದಾ. <code>N70130838231</code>).'
-        ),
+        'single_prompt_hathway': '<b>STB / VC id</b> ಕಳುಹಿಸಿ.',
         'single_prompt_railtel': '<b>ಒಂದು ಪರಿಶೀಲನೆ.</b> ಒಂದು ಗ್ರಾಹಕ ID ಅಥವಾ ಫೋನ್ ಸಂಖ್ಯೆ ಕಳುಹಿಸಿ.',
         'clear_railtel_only': (
             '<b>ಸೆಷನ್ ತೆರವು</b> ಕೇವಲ <b>ರೈಲ್‌ಟೆಲ್</b>ನಲ್ಲಿ. ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_railtel}</b>, '
@@ -386,66 +316,53 @@ STRINGS = {
             'ಇದು <b>ಹ್ಯಾಥ್‌ವೇ</b> STB / VC id ಎಂದು ಕಾಣುತ್ತದೆ (N + 11 ಅಂಕೆ ಅಥವಾ T + 12 ಅಂಕೆ). '
             'ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_hathway}</b>, ನಂತರ ಕಳುಹಿಸಿ.'
         ),
-        'wait_hathway_multi': 'ಒಂದು <b>STB / VC id</b> ಕಳುಹಿಸಿ, ಅಥವಾ <b>{done}</b> ಒತ್ತಿ.',
+        'wait_hathway_multi': 'STB / VC id ಕಳುಹಿಸಿ, ಅಥವಾ <b>{done}</b>.',
         'wait_railtel_multi': 'ಗ್ರಾಹಕ ID ಅಥವಾ ಫೋನ್ ಕಳುಹಿಸಿ, ಅಥವಾ <b>{done}</b> ಒತ್ತಿ.',
-        'running_audit': 'ಪರಿಶೀಲನೆ ನಡೆಯುತ್ತಿದೆ: <code>{cid}</code>…',
+        'running_audit': 'STB ಸ್ಥಿತಿಗಾಗಿ ಕಾಯಿರಿ. <code>{cid}</code>',
         'audit_error': '<b>ಪರಿಶೀಲನೆ ದೋಷ</b>\n<code>{exc}</code>',
-        'single_wait_hathway': 'ಸರಿಯಾದ <b>STB / VC id</b> ಕಳುಹಿಸಿ (ಉದಾ. <code>N70130838231</code>).',
+        'single_wait_hathway': 'ಸರಿಯಾದ STB / VC id ಕಳುಹಿಸಿ.',
+        'running_single_audit': 'STB ಸ್ಥಿತಿಗಾಗಿ ಕಾಯಿರಿ. <code>{cid}</code>',
         'single_wait_railtel': (
             'ಸರಿಯಾದ ಗ್ರಾಹಕ ID ಅಥವಾ ಫೋನ್ ಕಳುಹಿಸಿ '
             '(ಉದಾ. <code>ka.user</code>, 10 ಅಂಕೆ, ಅಥವಾ <code>+91</code>…).'
         ),
-        'running_single_audit': 'ಒಂದು ಪರಿಶೀಲನೆ ನಡೆಯುತ್ತಿದೆ: <code>{cid}</code>…',
         'clear_send_id': 'ಸೆಷನ್ ತೆರವಿಗೆ ಗ್ರಾಹಕ ID ಅಥವಾ ಫೋನ್ ಕಳುಹಿಸಿ.',
         'clearing': 'ಸೆಷನ್ ತೆರವು: <code>{cid}</code>… ಬ್ರೌಸರ್ ತೆರೆಯುತ್ತದೆ.',
         'clear_error': '<b>ಸೆಷನ್ ತೆರವು ದೋಷ</b>\n<code>{exc}</code>',
-        'hathway_deactivate_wait_prompt': (
-            '<b>ಹ್ಯಾಥ್‌ವೇ — ತಾತ್ಕಾಲಿಕ STB ನಿಷ್ಕ್ರಿಯ.</b> ಒಂದು <b>STB / VC id</b> ಕಳುಹಿಸಿ (ಉದಾ. <code>N70152403369</code>). '
-            'ಬ್ರೌಸರ್ ತೆರೆದು ಲಾಗಿನ್ ಮಾಡಿ Main TV ನಲ್ಲಿ <b>Deactivate</b> — ಕಾರಣ '
-            '<i>Payment not received by customer</i> (ಬದಲಾಯಿಸಲು .env ನಲ್ಲಿ <code>HATHWAY_DEACTIVATE_REASON</code>). '
-            'ಒಂದೇ ಸಂದೇಶದಲ್ಲಿ: <code>/hath_deactivate YOUR_STB</code>.'
-        ),
-        'hathway_deactivate_running': 'ಹ್ಯಾಥ್‌ವೇ ತಾತ್ಕಾಲಿಕ ನಿಷ್ಕ್ರಿಯ: <code>{stb}</code> … ಬ್ರೌಸರ್ ತೆರುತ್ತದೆ.',
+        'hathway_deactivate_wait_prompt': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'hathway_deactivate_running': 'ನಿಷ್ಕ್ರೀಯಣೆ ಪೂರ್ಣಗೊಳ್ಳುವವರೆಗೆ ಕಾಯಿರಿ. <code>{stb}</code>',
         'hathway_deactivate_wrong_portal': (
             '<b>ತಾತ್ಕಾಲಿಕ STB ನಿಷ್ಕ್ರಿಯ</b> ಕೇವಲ <b>ಹ್ಯಾಥ್‌ವೇ</b>ಯಲ್ಲಿ. ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_hathway}</b>, '
             'ನಂತರ <b>{hathway_deactivate}</b> ಅಥವಾ <code>/hath_deactivate</code>.'
         ),
-        'hathway_deactivate_need_stb': 'ಮಾನ್ಯ <b>STB / VC id</b> ಕಳುಹಿಸಿ, ಅಥವಾ ಮೆನು.',
-        'hathway_activate_wait_prompt': (
-            '<b>ಹ್ಯಾಥ್‌ವೇ — Activate Back.</b> ಒಂದು <b>STB / VC id</b> ಕಳುಹಿಸಿ. ಬ್ರೌಸರ್ ತೆರೆದು Main TV ನಲ್ಲಿ '
-            '<b>Activate</b> — ಕಾರಣ <i>Payment received from customer/Promise to pay</i> '
-            '(ಬದಲಾಯಿಸಲು .env ನಲ್ಲಿ <code>HATHWAY_ACTIVATE_REASON</code>). '
-            'ಒಂದೇ ಸಂದೇಶ: <code>/hath_activate YOUR_STB</code>.'
-        ),
-        'hathway_activate_running': 'Activate Back: <code>{stb}</code> … ಬ್ರೌಸರ್ ತೆರುತ್ತದೆ.',
+        'hathway_deactivate_need_stb': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'hathway_activate_wait_prompt': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'hathway_activate_running': 'ಸಕ್ರಿಯಗೊಳಿಸುವಿಕೆ ಪೂರ್ಣಗೊಳ್ಳುವವರೆಗೆ ಕಾಯಿರಿ. <code>{stb}</code>',
         'hathway_activate_wrong_portal': (
             '<b>Activate Back</b> ಕೇವಲ <b>ಹ್ಯಾಥ್‌ವೇ</b>ಯಲ್ಲಿ. ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_hathway}</b>, '
             'ನಂತರ <b>{hathway_activate}</b> ಅಥವಾ <code>/hath_activate</code>.'
         ),
-        'hathway_activate_need_stb': 'ಮಾನ್ಯ <b>STB / VC id</b> ಕಳುಹಿಸಿ, ಅಥವಾ ಮೆನು.',
-        'hathway_remove_terminate_wait_prompt': (
-            '<b>ಹ್ಯಾಥ್‌ವೇ — ಪ್ಯಾಕ್ ತೆಗೆದು STB Terminate.</b> ಒಂದು <b>STB / VC id</b> ಕಳುಹಿಸಿ. '
-            'Main TV ನಲ್ಲಿ <b>ALL Cancel</b> ಕಾಣಿಸಿದರೆ ಮೊದಲು ಅದನ್ನು ಪ್ರಯತ್ನಿಸುತ್ತದೆ; <code>auto</code>ದಲ್ಲಿ ಅದು ಪೂರ್ಣಗೊಳ್ಳದಿದ್ದರೆ ▼ → CANCEL ಗೆ ಹೋಗುತ್ತದೆ. '
-            'ಬ್ರೌಸರ್ ನಂತರ <b>Terminate</b> — <code>HATHWAY_TERMINATE_REASON</code>. '
-            '<code>HATHWAY_REMOVE_PACK_METHOD</code> = auto / all_cancel / bouquet. '
-            'ಒಂದೇ ಸಂದೇಶ: <code>/hath_remove_terminate YOUR_STB</code>.'
+        'hathway_activate_need_stb': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'hathway_renew_wait_prompt': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'hathway_renew_running': 'ತ್ವರಿತ ರಿನ್ಯೂ ಪೂರ್ಣಗೊಳ್ಳುವವರೆಗೆ ಕಾಯಿರಿ. <code>{stb}</code>',
+        'hathway_renew_wrong_portal': (
+            '<b>ಇಕ್ವೈರ್ಡ್ ಪ್ಲಾನ್ ರಿನ್ಯೂ</b> ಎಲ್ಲೂ ಹ್ಯಾಥ್‌ವೇ ಏಜೆಂಟ್‌ನಲ್ಲಿ. <b>{hathway_renew_stb}</b> ಅಥವಾ '
+            '<code>/hath_renew</code>.'
         ),
-        'hathway_remove_terminate_running': (
-            'ಪ್ಯಾಕ್ ತೆಗೆದು STB terminate: <code>{stb}</code> … ಬ್ರೌಸರ್ ತೆರುತ್ತದೆ.'
-        ),
+        'hathway_renew_need_stb': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'hathway_remove_terminate_wait_prompt': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'hathway_remove_terminate_running': 'ಪ್ಯಾಕ್ ತೆಗೆಯುವಿಕೆ ಮತ್ತು Terminate ಪೂರ್ಣಗೊಳ್ಳುವವರೆಗೆ ಕಾಯಿರಿ. <code>{stb}</code>',
         'hathway_remove_terminate_wrong_portal': (
             '<b>ಪ್ಯಾಕ್ ತೆಗೆ + Terminate</b> ಕೇವಲ <b>ಹ್ಯಾಥ್‌ವೇ</b>ಯಲ್ಲಿ. ಮೊದಲು <b>{menu}</b> ಒತ್ತಿ, ನಂತರ <b>{portal_hathway}</b>, '
             'ನಂತರ <b>{hathway_remove_terminate}</b> ಅಥವಾ <code>/hath_remove_terminate</code>.'
         ),
-        'hathway_remove_terminate_need_stb': 'ಮಾನ್ಯ <b>STB / VC id</b> ಕಳುಹಿಸಿ, ಅಥವಾ ಮೆನು.',
-        'idle_prompt_hathway': 'ಕೆಳಗೆ ಆಯ್ಕೆಮಾಡಿ, ಅಥವಾ ತ್ವರಿತ ಹ್ಯಾಥ್‌ವೇ ಪರಿಶೀಲನೆಗೆ <b>STB / VC id</b> ಕಳುಹಿಸಿ.',
+        'hathway_remove_terminate_need_stb': 'STB / VC id ಕಳುಹಿಸಿ.',
+        'idle_prompt_hathway': 'ಬಟನ್ ಒತ್ತು ಅಥವಾ STB / VC id ಕಳುಹಿಸಿ.',
         'idle_prompt_railtel': (
             'ಕೆಳಗೆ ಆಯ್ಕೆಮಾಡಿ, ಅಥವಾ ತ್ವರಿತ ಒಂದು ಪರಿಶೀಲನೆಗೆ ಗ್ರಾಹಕ ID / ಫೋನ್ ಕಳುಹಿಸಿ.'
         ),
-        'railtel_input_on_hathway': (
-            'ಇದು <b>ರೈಲ್‌ಟೆಲ್</b> ಗ್ರಾಹಕ ID ಅಥವಾ ಫೋನ್ ಎಂದು ಕಾಣುತ್ತದೆ. ಈ ಬಾಟ್ <b>ಕೇವಲ ಹ್ಯಾಥ್‌ವೇ</b> — '
-            '<b>STB / VC id</b> (N + 11 ಅಥವಾ T + 12 ಅಂಕೆ) ಕಳುಹಿಸಿ. ಗ್ರಾಹಕ ಪರಿಶೀಲನೆಗೆ <b>ರೈಲ್‌ಟೆಲ್ ಏಜೆಂಟ್</b> ಬಳಸಿ.'
-        ),
+        'railtel_input_on_hathway': 'ಈ ಬಾಟಿಗೆ STB / VC id ಬೇಕು (ಗ್ರಾಹಕ ID ಅಥವಾ ಫೋನ್ ಅಲ್ಲ).',
+        'login_fail_hathway': 'ಲಾಗಿನ್ ವಿಫಲ — ಬಳಕೆದಾರಹೆಸರು, ಗುಪ್ತಪದ ಮತ್ತು CAPTCHA ಪರಿಶೀಲಿಸಿ.',
         'login_fail_railtel': 'ಲಾಗಿನ್ ವಿಫಲ — ರುಜುವಾತುಗಳು ಮತ್ತು CAPTCHA ಪರಿಶೀಲಿಸಿ.',
         'audit_fail_hathway': 'ಹ್ಯಾಥ್‌ವೇ ಪರಿಶೀಲನೆ ವಿಫಲ ({search})\nಕಾರಣ: {reason}.',
         'audit_fail_railtel_head': '<b>ಪರಿಶೀಲನೆ ವಿಫಲ: {search}</b>',
@@ -453,12 +370,16 @@ STRINGS = {
         'hathway_pack_lines': (
             'ಪ್ಯಾಕ್ ಹೆಸರು: {pack}\nಮಾನ್ಯತೆ ವರೆಗೆ: {valid}\nSTB Status: {stb}\nLCO ಬೆಲೆ: {lco}'
         ),
-        'hathway_pack_mgmt': (
-            'ಹ್ಯಾಥ್‌ವೇ — ಪ್ಯಾಕ್ ಮ್ಯಾನೇಜ್‌ಮೆಂಟ್\n'
-            'ಉಲ್ಲೇಖ: {ref}\n\n'
-            'ಲಾಗಿನ್ ನಂತರ ಬ್ರೌಸರ್ ಪ್ಯಾಕ್ ಮ್ಯಾನೇಜ್‌ಮೆಂಟ್‌ನಲ್ಲಿದೆ. ಈ ಬಾಟ್‌ನಲ್ಲಿ ಗ್ರಾಹಕ Status ಮಾಹಿತಿ ಸ್ವಯಂಚಾಲಿತವಲ್ಲ — '
-            'ಪೋರ್ಟಲ್ ಕಿಟಕಿಯಲ್ಲಿ ಹುಡುಕಿ, ಅಥವಾ ರೈಲ್‌ಟೆಲ್‌ನಂತಹ ಪರಿಶೀಲನೆಗೆ ಸೆಲೆಕ್ಟರ್ ಹಂಚಿಕೊಳ್ಳಿ.'
+        'hathway_pack_mgmt': 'ಪ್ಯಾಕ್ ಮ್ಯಾನೇಜ್‌ಮೆಂಟ್ — ಉಲ್ಲೇಖ: <code>{ref}</code>',
+        'hathway_dashboard_running': 'ಡ್ಯಾಷ್‌ಬೋರ್ಡ್ ಲೋಡ್… ದಯವಿಟ್ಟು ಕಾಯಿರಿ',
+        'hathway_dashboard_ok': (
+            '<b>ಡ್ಯಾಷ್‌ಬೋರ್ಡ್ Details</b>\n'
+            'Active STB: {active}\n'
+            'ನಿಷ್ಕ್ರಿಯ STB: {inactive}\n'
+            'ಒಟ್ಟು STB: {total}\n'
+            'Hathway Wallet balance: {balance}'
         ),
+        'hathway_dashboard_fail': '<b>ಡ್ಯಾಷ್‌ಬೋರ್ಡ್ ವಿಫಲ</b>\n{err}',
         'audit_result_head': '<b>ಪರಿಶೀಲನೆ ಫಲಿತಾಂಶ: {matched}</b>',
         'audit_search_input': 'ಹುಡುಕಾಟ ಒಳಬರಹ: {search}',
         'audit_status': 'Status: {status}',
@@ -474,6 +395,8 @@ STRINGS = {
         'clear_fail_input': 'ಒಳಬರಹ: <code>{search}</code>',
         'clear_fail_reason': 'ಕಾರಣ: {err}',
         'clear_fail_matched_line': 'ಹೊಂದಿದೆ: <code>{mc}</code>',
+        'portal_action_ok_head': '<b>ಪೋರ್ಟಲ್ ಕಾರ್ಯ ಯಶಸ್ವಿ</b>',
+        'portal_action_fail_head': '<b>ಪೋರ್ಟಲ್ ಕಾರ್ಯ ವಿಫಲ</b>',
         'na': 'ಲಭ್ಯವಿಲ್ಲ',
         'session_cleared_msg': 'ಸೆಷನ್ ತೆರವಾಗಿದೆ.',
     },
@@ -482,9 +405,11 @@ STRINGS = {
 LABELS = {
     'en': {
         'hathway_multi': 'Login — multi STB status',
+        'hathway_dashboard': 'Dashboard stats',
         'hathway_single': 'Single STB status',
         'hathway_deactivate': 'Temp STB deactivate',
         'hathway_activate': 'Activate Back',
+        'hathway_renew_stb': 'Renew expired plan',
         'hathway_remove_terminate': 'Remove pack & terminate',
         'menu': 'Menu',
         'done': 'Done / Logout',
@@ -492,9 +417,11 @@ LABELS = {
     },
     'kn': {
         'hathway_multi': 'ಅನೇಕ STB ಚೆಕ್',
+        'hathway_dashboard': 'ಡ್ಯಾಷ್‌ಬೋರ್ಡ್ ಚೆಕ್',
         'hathway_single': 'ಒಂದು STB ಚೆಕ್',
         'hathway_deactivate': 'ತಾತ್ಕಾಲಿಕ STB ನಿಷ್ಕ್ರಿಯ',
         'hathway_activate': 'Activate Back',
+        'hathway_renew_stb': 'Renew expired plan',
         'hathway_remove_terminate': 'Remove pack & terminate',
         'menu': 'ಮೆನು',
         'done': 'Logout/ಪೋರ್ಟಲ್ ಮುಚ್ಚುವಿಕೆ',
@@ -608,22 +535,48 @@ def format_audit_result_for_chat(chat_id, search_value, audit):
     return '\n'.join(result_lines)
 
 
-def format_clear_result_for_chat(chat_id, search_value, result):
+def format_clear_result_for_chat(
+    chat_id, search_value, result, *, ok_head_key='clear_ok_head', fail_head_key='clear_fail_head'
+):
     lang = get_lang(chat_id) or 'en'
     if result.get('success'):
         mc = _tg_escape(result.get('matched_cid') or search_value)
         msg = _tg_escape(result.get('message') or _t(lang, 'session_cleared_msg'))
-        return f'{_t(lang, "clear_ok_head")}\n{_t(lang, "clear_ok_matched", mc=mc)}\n{msg}'
+        return f'{_t(lang, ok_head_key)}\n{_t(lang, "clear_ok_matched", mc=mc)}\n{msg}'
     err = _tg_escape(result.get('error', 'Unknown'))
     mc = result.get('matched_cid')
     lines = [
-        _t(lang, 'clear_fail_head'),
+        _t(lang, fail_head_key),
         _t(lang, 'clear_fail_input', search=_tg_escape(search_value)),
         _t(lang, 'clear_fail_reason', err=err),
     ]
     if mc:
         lines.insert(2, _t(lang, 'clear_fail_matched_line', mc=_tg_escape(mc)))
     return '\n'.join(lines)
+
+
+def format_dashboard_stats_for_chat(chat_id, result):
+    lang = get_lang(chat_id) or 'en'
+
+    def v_disp(x):
+        if x is None:
+            return _t(lang, 'na')
+        return str(x)
+
+    if not result.get('success'):
+        return _t(
+            lang,
+            'hathway_dashboard_fail',
+            err=_tg_escape(result.get('error', 'Unknown')),
+        )
+    return _t(
+        lang,
+        'hathway_dashboard_ok',
+        active=_tg_escape(v_disp(result.get('active_stb'))),
+        inactive=_tg_escape(v_disp(result.get('inactive_stb'))),
+        total=_tg_escape(v_disp(result.get('total_stb'))),
+        balance=_tg_escape(v_disp(result.get('actual_balance'))),
+    )
 
 
 def login_fail_message(chat_id, portal):

@@ -49,6 +49,103 @@ def navigate_to_pack_management(page):
         return False
 
 
+def navigate_to_dashboard_tile(page):
+    """Clicks the **Dashboard** tile on Home.aspx (first cell, top-left; Pack Management is column 2)."""
+    print('🖱️ Navigating to Dashboard tile…')
+    try:
+        selector = '#td1 > div > center > table > tbody > tr:nth-child(1) > td:nth-child(1)'
+        page.wait_for_selector(selector, timeout=20000)
+        page.locator(selector).click()
+        page.wait_for_timeout(2500)
+        try:
+            page.wait_for_load_state('domcontentloaded', timeout=20000)
+        except Exception:
+            pass
+        print('✅ Dashboard tile clicked.')
+        return True
+    except Exception as e:
+        print(f'⚠️ Dashboard navigation error: {e}')
+        return False
+
+
+def _hathway_click_dashboard_summary_tab(page):
+    """Ensures inner **Dashboard** tab is selected (alongside Base / Financial Summary) if present."""
+    cleanup_hathway_ui(page)
+    clicked = False
+    try:
+        tab = page.get_by_role('tab', name=re.compile(r'^\s*Dashboard\s*$', re.I)).first
+        if tab.count() > 0:
+            tab.scroll_into_view_if_needed(timeout=5000)
+            tab.click(timeout=8000, force=True)
+            clicked = True
+    except Exception:
+        pass
+    if not clicked:
+        for filt in (
+            page.locator('a').filter(has_text=re.compile(r'^\s*Dashboard\s*$', re.I)),
+            page.locator('li').filter(has_text=re.compile(r'^\s*Dashboard\s*$', re.I)),
+            page.locator('span').filter(has_text=re.compile(r'^\s*Dashboard\s*$', re.I)),
+        ):
+            try:
+                if filt.count() == 0:
+                    continue
+                loc = filt.first
+                loc.scroll_into_view_if_needed(timeout=4000)
+                loc.click(timeout=6000, force=True)
+                clicked = True
+                break
+            except Exception:
+                continue
+    page.wait_for_timeout(1200 if clicked else 400)
+
+
+def hathway_parse_dashboard_stats_text(blob):
+    """
+    Regex-parse visible Hathway Dashboard summary body text.
+    Returns dict keys: active_stb, inactive_stb, total_stb, actual_balance (str or None).
+    """
+    out = {
+        'active_stb': None,
+        'inactive_stb': None,
+        'total_stb': None,
+        'actual_balance': None,
+    }
+    if not blob:
+        return out
+    m = re.search(r'Active\s*:\s*(\d+)', blob, re.I)
+    if m:
+        out['active_stb'] = int(m.group(1))
+    m_in = (
+        re.search(r'InActive\s*:\s*(\d+)', blob, re.I)
+        or re.search(r'Inactive\s*:\s*(\d+)', blob, re.I)
+        or re.search(r'In\s*Active\s*:\s*(\d+)', blob, re.I)
+    )
+    if m_in:
+        out['inactive_stb'] = int(m_in.group(1))
+    mt = re.search(r'Total\s*:\s*(\d+)', blob, re.I)
+    if mt:
+        out['total_stb'] = int(mt.group(1))
+    mb = re.search(r'Actual\s+Balance\s*:\s*([\d,]+(?:\.\d+)?)', blob, re.I)
+    if mb:
+        out['actual_balance'] = mb.group(1).strip().replace(',', '')
+    return out
+
+
+def hathway_scrape_dashboard_stats(page):
+    """
+    On Dashboard page: ensure **Dashboard** tab content, scrape body text for STB counts + Actual Balance.
+    """
+    cleanup_hathway_ui(page)
+    try:
+        _hathway_click_dashboard_summary_tab(page)
+        cleanup_hathway_ui(page)
+        blob = page.locator('body').inner_text(timeout=15000) or ''
+    except Exception:
+        blob = ''
+    merged = hathway_parse_dashboard_stats_text(blob)
+    return merged
+
+
 def _hathway_login_url():
     return (os.getenv('HATHWAY_LOGIN_URL') or 'https://partners.hathway-connect.com/Login.aspx').strip()
 
@@ -114,9 +211,11 @@ def _hathway_transaction_base(current_url):
     return None
 
 
-def login_hathway(page, account_id=None, user=None, password=None):
+def login_hathway(page, account_id=None, user=None, password=None, *, goto_pack_management=True):
     """
-    Hathway partners login with CAPTCHA; on success jumps to Home.aspx and Pack Management.
+    Hathway partners login with CAPTCHA; on success jumps to Home.aspx.
+    By default continues into Pack Management; set goto_pack_management=False to stay on Home grid
+    (e.g. Dashboard tile flow).
     Credentials: HATHWAY_USER/PASS, or HATHWAY_ACCOUNTS_FILE (see multi_credentials).
     Optional: HATHWAY_LOGIN_URL (default partners login page).
     """
@@ -229,6 +328,10 @@ def login_hathway(page, account_id=None, user=None, password=None):
                 except Exception as nav_e:
                     print(f'⚠️ Home.aspx goto: {nav_e}')
                 page.wait_for_timeout(2500)
+                cleanup_hathway_ui(page)
+                if not goto_pack_management:
+                    print('✅ Hathway logged in — Home.aspx (skipped Pack Management).')
+                    return True
                 if navigate_to_pack_management(page):
                     cleanup_hathway_ui(page)
                     return True
@@ -338,6 +441,51 @@ def _hathway_ensure_main_tv_tab(page):
             page.get_by_text(re.compile(r'Hathway\s*Bouquet', re.I)).first,
             page.get_by_text(re.compile(r'Plan\s*Details', re.I)).first,
             page.locator('table').filter(has_text=re.compile(r'LCO\s*Price', re.I)).first,
+        ):
+            try:
+                if loc.count() == 0:
+                    continue
+                loc.wait_for(state='visible', timeout=10000)
+                visible_ok = True
+                break
+            except Exception:
+                continue
+        if visible_ok:
+            return True
+        page.wait_for_timeout(500 * attempt)
+    return False
+
+
+def _hathway_ensure_customer_details_tab(page):
+    """
+    Activate **Customer Details** tab and wait until Action Required / Plan Details region is usable.
+    """
+    cleanup_hathway_ui(page)
+    for attempt in range(1, 4):
+        try:
+            tab = page.get_by_role('tab', name=re.compile(r'^Customer\s+Details$', re.I)).first
+            if tab.count() > 0:
+                tab.scroll_into_view_if_needed(timeout=5000)
+                tab.click(timeout=8000, force=True)
+            else:
+                page.locator('a, span, td, li').filter(
+                    has_text=re.compile(r'^Customer\s+Details$', re.I)
+                ).first.click(timeout=8000, force=True)
+        except Exception:
+            try:
+                page.locator('a, span, td, li').filter(
+                    has_text=re.compile(r'Customer\s+Details', re.I)
+                ).first.click(timeout=6000, force=True)
+            except Exception:
+                pass
+        page.wait_for_timeout(700)
+        cleanup_hathway_ui(page)
+        visible_ok = False
+        for loc in (
+            page.get_by_text(re.compile(r'Action\s+Required', re.I)).first,
+            page.get_by_text(re.compile(r'Quick\s+Recharge', re.I)).first,
+            page.get_by_text(re.compile(r'Plan\s*Details', re.I)).first,
+            page.get_by_text(re.compile(r'VC/Mac\s*ID', re.I)).first,
         ):
             try:
                 if loc.count() == 0:
@@ -517,6 +665,279 @@ def _hathway_scrape_pack_management_dom(page):
             return /Pack Management|Customer Details|Search By|Distributor Name|Enter VCID|VC\\/Mac|GridView|Page\\$/i.test(t);
         };
 
+        const isAlacartePlanName = (pname) => {
+            const t = norm(pname);
+            const tl = t.toLowerCase();
+            if (!t || t.length < 3) return false;
+            if (/^(a-la-carte|alacarte|à-la-carte)$/i.test(tl.replace(/\\s+/g, ' ').trim())) return true;
+            if (/^a[-\\s]?la[-\\s]?carte$/i.test(tl.replace(/[\\u25ba\\u25b6\\u25bc\\u25bd\\s]+/g, ' ').trim())) return true;
+            const noAccent = tl.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+            if (/^a[-\\s]?la[-\\s]?carte$/i.test(noAccent.trim())) return true;
+            if (
+                tl.length < 28 &&
+                /a[-\\s]?la[-\\s]?carte/i.test(tl) &&
+                !/hw\\s|hathway|budget|plus|pack|\\d{3,}/i.test(tl)
+            )
+                return true;
+            return false;
+        };
+
+        const looksLikeDate = (t) => {
+            const s = norm(t);
+            if (s.length < 6 || s.length > 28) return false;
+            if (/\\b\\d{1,2}-[A-Za-z]{3}-\\d{2,4}\\b/.test(s)) return true;
+            if (/\\d{1,2}[-./]\\d{1,2}[-./]\\d{2,4}|\\d{4}[-./]\\d{1,2}[-./]\\d{1,2}/.test(s)) return true;
+            return /\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\s+\\d{1,2},?\\s*\\d{2,4}\\b/i.test(s);
+        };
+
+        const junkValidUpto = (t) => {
+            const s = norm(t);
+            const c = s.toLowerCase().replace(/\\s+/g, '');
+            if (!s) return false;
+            if (s.length > 36) return true;
+            if (/plan\\s*name|sd\\s*hd|sdhd|total\\s*mrp|package\\s*name|hathway\\s*bouquet|gridview|valid\\s*upto$/i.test(s))
+                return true;
+            if (/planname|sdhd|totalmrp|package|^validupto$/i.test(c)) return true;
+            const hdrHints = [/plan\\s*name/i, /lco\\s*price/i, /valid\\s*upto/i, /\\bstatus\\b/i, /total\\s*mrp/i];
+            if (hdrHints.filter((rx) => rx.test(s)).length >= 3) return true;
+            return false;
+        };
+
+        const junkStatusCell = (t) => {
+            const s = norm(t).toLowerCase();
+            if (!s || s.length > 36) return true;
+            if (s === 'status' || s === 'stb status' || s === 'stbstatus') return true;
+            if (/^view$/i.test(s)) return true;
+            return /^plan\\s*name|valid\\s*upto|^sd$|^hd$|^mrp$/i.test(norm(t));
+        };
+
+        const inferValidUptoFromCells = (cells) => {
+            for (const c of cells) {
+                const t = norm(c.textContent || '');
+                if (looksLikeDate(t) && !junkValidUpto(t)) return t;
+            }
+            return '';
+        };
+
+        const normKey = (s) => norm(s).toLowerCase().replace(/\\s+/g, ' ').trim();
+        const sameAsPlanName = (vu, pname) => normKey(vu) === normKey(pname) && normKey(pname).length >= 2;
+        const bouquetDateRe = /\\b\\d{1,2}-[A-Za-z]{3}-\\d{2,4}\\b/;
+        const scanRowForBouquetDate = (cells) => {
+            for (const c of cells) {
+                const t = norm(c.textContent || '');
+                const m = t.match(bouquetDateRe);
+                if (m && looksLikeDate(m[0]) && !junkValidUpto(m[0])) return m[0];
+            }
+            return '';
+        };
+        const refineValidUpto = (vu, pname, cells) => {
+            if (junkValidUpto(vu)) vu = inferValidUptoFromCells(cells);
+            if (junkValidUpto(vu)) vu = '';
+            if (sameAsPlanName(vu, pname)) vu = '';
+            else if (vu && !looksLikeDate(vu)) vu = '';
+            if (!vu) vu = inferValidUptoFromCells(cells);
+            if (!vu) vu = scanRowForBouquetDate(cells);
+            if (sameAsPlanName(vu, pname)) vu = '';
+            return vu;
+        };
+
+        const inferStatusFromCells = (cells) => {
+            for (const c of cells) {
+                const t = norm(c.textContent || '');
+                const tl = t.toLowerCase();
+                if (!t || t.length > 24) continue;
+                if (/^active$/i.test(t) || /^inactive$/i.test(t)) return t;
+                if (/suspend|termination|disconnect/i.test(tl) && !/mrp|price/i.test(tl)) return t.slice(0, 24);
+            }
+            return '';
+        };
+
+        const dayFromBouquetValidUpto = (vu) => {
+            const m = norm(vu).match(/\\b(\\d{1,2})-[A-Za-z]{3}-\\d{2,4}\\b/i);
+            if (!m) return NaN;
+            const d = parseInt(m[1], 10);
+            return d >= 1 && d <= 31 ? d : NaN;
+        };
+
+        const extractLcoDigitsFromCell = (raw) => {
+            const t = norm(raw);
+            if (!t) return '';
+            if (looksLikeDate(t) || bouquetDateRe.test(t)) return '';
+            if (/\\d{1,2}[-./]\\d{1,2}[-./]\\d{2,4}|\\d{4}[-./]\\d{1,2}[-./]\\d{1,2}/.test(t)) return '';
+            let rawDigits = '';
+            const rsLead = t.match(/rs\\.?\\s*([\\d,.]+)/i);
+            const rsTrail = t.match(/\\b([\\d]{1,7}(?:\\.[\\d]{1,2})?)\\s*rs\\.?/i);
+            if (rsLead) rawDigits = (rsLead[1] || '').replace(/,/g, '');
+            else if (rsTrail) rawDigits = (rsTrail[1] || '').replace(/,/g, '');
+            else {
+                const stripped = t.replace(/^rs\\.?\\s*/i, '').replace(/,/g, '').trim();
+                if (/^[\\d]+(?:\\.[\\d]+)?$/.test(stripped)) rawDigits = stripped;
+            }
+            if (!rawDigits) return '';
+            const n = parseFloat(rawDigits);
+            if (!isFinite(n) || n < 1) return '';
+            return rawDigits;
+        };
+
+        const inferBestPriceDigits = (cells, preferIdx = -1, skipIdx = -1) => {
+            const tryText = (t) => {
+                if (looksLikeDate(t) || bouquetDateRe.test(t) || junkStatusCell(t) || junkValidUpto(t))
+                    return '';
+                if (/\\d{1,2}[-./]\\d{1,2}[-./]\\d{2,4}|\\d{4}[-./]\\d{1,2}[-./]\\d{1,2}/.test(t))
+                    return '';
+                let raw = '';
+                const rsLead = t.match(/rs\\.?\\s*([\\d,.]+)/i);
+                const rsTrail = t.match(/\\b([\\d]{1,7}(?:\\.[\\d]{1,2})?)\\s*rs\\.?/i);
+                if (rsLead) raw = (rsLead[1] || '').replace(/,/g, '');
+                else if (rsTrail) raw = (rsTrail[1] || '').replace(/,/g, '');
+                else {
+                    const stripped = t.replace(/^rs\\.?\\s*/i, '').replace(/,/g, '').trim();
+                    if (/^[\\d]+(?:\\.[\\d]+)?$/.test(stripped)) raw = stripped;
+                }
+                if (!raw) return '';
+                const n = parseFloat(raw);
+                if (!isFinite(n) || n < 1) return '';
+                if (n < 50 && cells.length >= 8) return '';
+                return raw;
+            };
+            if (preferIdx >= 0 && preferIdx < cells.length && preferIdx !== skipIdx) {
+                const one = tryText(norm(cells[preferIdx].textContent || ''));
+                if (one) return one;
+            }
+            let best = '';
+            let bestN = -1;
+            const order = [];
+            for (let i = 0; i < cells.length; i++) order.push(i);
+            if (preferIdx >= 0 && preferIdx < cells.length) {
+                order.sort((a, b) => (a === preferIdx ? -1 : b === preferIdx ? 1 : a - b));
+            }
+            for (const i of order) {
+                if (skipIdx >= 0 && i === skipIdx) continue;
+                const raw = tryText(norm(cells[i].textContent || ''));
+                if (!raw) continue;
+                const n = parseFloat(raw);
+                if (n > bestN) {
+                    bestN = n;
+                    best = raw;
+                }
+            }
+            return best;
+        };
+
+        const resolveRowLco = (cells, lcoIdx, vuIdx, vu, outObj) => {
+            const skipVu = vuIdx >= 0 ? vuIdx : -1;
+
+            let lcoDigits = extractLcoDigitsFromCell(
+                cells[lcoIdx] ? cells[lcoIdx].textContent || '' : ''
+            );
+            let lcoNum = lcoDigits ? parseFloat(lcoDigits) : NaN;
+            let vuDay = dayFromBouquetValidUpto(vu);
+
+            const suspiciousDay =
+                isFinite(vuDay) && isFinite(lcoNum) && lcoNum === vuDay && vuDay >= 1 && vuDay <= 31;
+
+            let needsFallback =
+                !lcoDigits ||
+                !/[0-9]/.test(lcoDigits) ||
+                !isFinite(lcoNum) ||
+                lcoNum < 10 ||
+                suspiciousDay;
+
+            if (needsFallback) {
+                const preferIdx = suspiciousDay ? -1 : lcoIdx;
+                const alt = inferBestPriceDigits(cells, preferIdx, skipVu);
+                if (alt) {
+                    lcoDigits = alt;
+                    lcoNum = parseFloat(lcoDigits);
+                }
+            }
+
+            vuDay = dayFromBouquetValidUpto(vu);
+            const stillSuspicious =
+                isFinite(vuDay) &&
+                vuDay >= 1 &&
+                vuDay <= 31 &&
+                isFinite(lcoNum) &&
+                lcoNum === vuDay;
+            if (stillSuspicious) {
+                const alt2 = inferBestPriceDigits(cells, -1, skipVu);
+                if (alt2) {
+                    const n2 = parseFloat(alt2);
+                    if (isFinite(n2) && n2 !== lcoNum) {
+                        lcoDigits = alt2;
+                        lcoNum = n2;
+                    }
+                }
+            }
+
+            let lco = lcoDigits;
+            vuDay = dayFromBouquetValidUpto(vu);
+            const stillMatchesDay =
+                isFinite(vuDay) &&
+                vuDay >= 1 &&
+                vuDay <= 31 &&
+                isFinite(lcoNum) &&
+                lcoNum === vuDay;
+
+            if (
+                (!isFinite(lcoNum) || lcoNum < 10 || lcoNum === 1 || stillMatchesDay) &&
+                outObj.total_lco_price
+            ) {
+                const tot = parseFloat(String(outObj.total_lco_price).replace(/,/g, ''));
+                if (isFinite(tot) && tot >= 10) {
+                    lcoDigits = String(outObj.total_lco_price).replace(/,/g, '');
+                    lco = lcoDigits;
+                    lcoNum = tot;
+                }
+            }
+
+            return { lco, lcoDigits, lcoNum };
+        };
+
+        const priceColumnIndex = (headers) => {
+            const badNonLcoHeader = (h) =>
+                /^\\s*sd\\s*$/i.test(h) ||
+                (/\\bsd\\b/i.test(h) && !/\\blco\\b/i.test(h) && /total|mrp|price/i.test(h));
+            let i = headers.findIndex(
+                (h) =>
+                    /^\\s*lco\\s*price\\s*(?:\\(?rs\\.?\\)?)?\\s*$/i.test(h) ||
+                    /^\\s*lco\\s*(?:price|rate)\\s*$/i.test(h)
+            );
+            if (i >= 0) return i;
+            i = headers.findIndex(
+                (h) =>
+                    /\\blco\\b/i.test(h) &&
+                    (h.includes('price') || /\\brs\\.?\\b/i.test(h) || /^lco\\s*$/i.test(h)) &&
+                    !/\\btotal\\b/i.test(h) &&
+                    !/\\blco\\s*(id|no\\.?|number|code)\\b/i.test(h) &&
+                    !badNonLcoHeader(h)
+            );
+            if (i >= 0) return i;
+            i = headers.findIndex(
+                (h) =>
+                    !badNonLcoHeader(h) &&
+                    (/total\\s*mrp|mrp\\s*\\(rs/.test(h) || (h.includes('total') && h.includes('mrp')))
+            );
+            if (i >= 0) return i;
+            i = headers.findIndex(
+                (h) =>
+                    !badNonLcoHeader(h) &&
+                    (h === 'mrp' || h === 'total') &&
+                    h.length < 16 &&
+                    !/^\\s*(sd|hd)\\s*$/i.test(h)
+            );
+            return i;
+        };
+
+        const validUpToColumnIndex = (headers) => {
+            let i = headers.findIndex((h) => h.includes('valid') && (h.includes('upto') || h.includes('up to')));
+            if (i >= 0) return i;
+            i = headers.findIndex((h) => h.replace(/\\s/g, '') === 'validupto');
+            if (i >= 0) return i;
+            i = headers.findIndex((h) => h.includes('expiry') || h.includes('validity'));
+            return i;
+        };
+
         const statusColFromHeaders = (headers) => {
             for (let i = headers.length - 1; i >= 0; i--) {
                 const h = (headers[i] || '').trim().toLowerCase();
@@ -530,60 +951,91 @@ def _hathway_scrape_pack_management_dom(page):
             const rows = [...tbl.querySelectorAll('tr')];
             for (let ri = 0; ri < Math.min(rows.length, 40); ri++) {
                 const hdrCells = [...rows[ri].querySelectorAll('th, td')];
-                if (hdrCells.length < 6) continue;
+                if (hdrCells.length < 5) continue;
                 const thn = hdrCells.filter((c) => c.tagName === 'TH').length;
                 const headers = hdrCells.map((c) => norm(c.textContent).toLowerCase());
-                if (thn < 1 && !headers.some((h) => h === 'plan name')) continue;
+                if (thn < 1 && !headers.some((h) => h === 'plan name' || h.includes('plan name'))) continue;
                 const planIdx = headers.findIndex(
                     (h) => h === 'plan name' || (h.includes('plan') && h.includes('name'))
                 );
-                const lcoIdx = headers.findIndex((h) => h.includes('lco') && h.includes('price'));
-                let vuIdx = headers.findIndex((h) => h.includes('valid') && h.includes('upto'));
-                if (vuIdx < 0) {
-                    vuIdx = headers.findIndex((h) => h.replace(/\\s/g, '') === 'validupto');
-                }
+                const lcoIdx = priceColumnIndex(headers);
+                const vuIdx = validUpToColumnIndex(headers);
                 const stCol = statusColFromHeaders(headers);
-                if (planIdx < 0 || lcoIdx < 0 || vuIdx < 0 || stCol < 0) continue;
+                if (planIdx < 0 || lcoIdx < 0 || stCol < 0) continue;
+
+                const candidates = [];
                 for (let j = ri + 1; j < rows.length; j++) {
                     const cells = [...rows[j].querySelectorAll('td, th')];
-                    const need = Math.max(planIdx, lcoIdx, vuIdx, stCol);
-                    if (cells.length <= need) continue;
+                    const need = Math.max(planIdx, lcoIdx, stCol);
+                    const needVu = vuIdx >= 0 ? Math.max(need, vuIdx) : need;
+                    if (cells.length <= needVu || cells.length <= need) continue;
                     const rowTxt = norm(rows[j].innerText || '');
                     if (/^\\s*total/i.test(rowTxt)) continue;
-                    if (/plan\\s*name|lco\\s*price|valid\\s*upto|hathway\\s*bouquet/i.test(rowTxt) && rowTxt.length < 120) continue;
-                    const pname = norm(cells[planIdx].innerText || cells[planIdx].textContent || '');
-                    const lco = norm(cells[lcoIdx].textContent || '');
-                    const vu = norm(cells[vuIdx].textContent || '');
-                    const rst = norm(cells[stCol].textContent || '');
+                    if (
+                        /^(plan\\s*name|hathway\\s*bouquet)/i.test(rowTxt.slice(0, 40)) &&
+                        rowTxt.length < 140
+                    )
+                        continue;
+                    let pname = norm(cells[planIdx].innerText || cells[planIdx].textContent || '');
+                    if (isAlacartePlanName(pname)) continue;
+                    let vu =
+                        vuIdx >= 0 && cells.length > vuIdx ? norm(cells[vuIdx].textContent || '') : '';
+                    let rst = cells.length > stCol ? norm(cells[stCol].textContent || '') : '';
                     if (junkPlanCell(pname)) continue;
                     if (pname.length < 2) continue;
                     if (/^(plan name|sd|hd|total|mrp)$/i.test(pname)) continue;
-                    if (!/[0-9]/.test(lco)) continue;
-                    if (!rst || /^view$/i.test(rst)) continue;
-                    out.plan_name = pname;
-                    out.plan_lco_price = lco.replace(/^rs\\.?\\s*/i, '').trim();
-                    out.plan_valid_upto = vu;
-                    out.plan_status = rst;
-                    out.main_tv_row_status = rst;
-                    if (/^inactive$/i.test(rst)) out.tv_table_status = 'INACTIVE';
-                    else if (/^active$/i.test(rst)) out.tv_table_status = 'ACTIVE';
-                    return true;
+
+                    vu = refineValidUpto(vu, pname, cells);
+
+                    if (junkStatusCell(rst)) rst = inferStatusFromCells(cells);
+
+                    const rl = resolveRowLco(cells, lcoIdx, vuIdx, vu, out);
+                    let { lco, lcoDigits, lcoNum } = rl;
+                    if (!/[0-9]/.test(String(lcoDigits || lco || ''))) continue;
+                    if (!rst || /^view$/i.test(rst) || junkStatusCell(rst)) continue;
+
+                    const vuN = norm(vu);
+                    const bouquetDatePat = /\\b\\d{1,2}-[A-Za-z]{3}-\\d{2,4}\\b/i;
+                    const goodBouquetDate = bouquetDatePat.test(vuN) && !junkValidUpto(vu);
+                    const goodStatus = /^active$/i.test(rst) || /^inactive$/i.test(rst);
+                    let score = 0;
+                    if (goodStatus) score += 120;
+                    if (goodBouquetDate) score += 80;
+                    else if (looksLikeDate(vu) && !junkValidUpto(vu)) score += 40;
+                    if (lcoNum >= 50) score += 30;
+                    else if (lcoNum >= 10) score += 15;
+                    if (pname.length >= 8) score += 5;
+                    candidates.push({ pname, lco, lcoDigits, vu, rst, score });
                 }
+                if (!candidates.length) continue;
+                candidates.sort((a, b) => b.score - a.score);
+                const pick = candidates[0];
+                out.plan_name = pick.pname;
+                out.plan_lco_price = pick.lco.replace(/^rs\\.?\\s*/i, '').trim();
+                out.plan_valid_upto = pick.vu;
+                out.plan_status = pick.rst;
+                out.main_tv_row_status = pick.rst;
+                if (/^inactive$/i.test(pick.rst)) out.tv_table_status = 'INACTIVE';
+                else if (/^active$/i.test(pick.rst)) out.tv_table_status = 'ACTIVE';
+                return true;
             }
             return false;
         };
 
         const tryBouquetTables = (list) => {
+            const low = (el) => norm(el.innerText || '').toLowerCase();
             const sorted = [...list].sort((a, b) => {
-                const sa = norm(a.innerText || '');
-                const sb = norm(b.innerText || '');
-                const ha = sa.includes('hathway bouquet');
-                const hb = sb.includes('hathway bouquet');
+                const ha = low(a).includes('hathway bouquet');
+                const hb = low(b).includes('hathway bouquet');
                 if (ha && !hb) return -1;
                 if (!ha && hb) return 1;
                 return 0;
             });
-            for (const tbl of sorted) {
+            const labeled = sorted.filter((t) => low(t).includes('hathway bouquet'));
+            const ordered = labeled.length
+                ? [...labeled, ...sorted.filter((t) => !low(t).includes('hathway bouquet'))]
+                : sorted;
+            for (const tbl of ordered) {
                 if (parseHathwayBouquetGrid(tbl)) return true;
             }
             return false;
@@ -594,14 +1046,22 @@ def _hathway_scrape_pack_management_dom(page):
             bouquetDone = tryBouquetTables([...document.querySelectorAll('table')]);
         }
 
-        // Fallback: older plan-name + LCO grids (no Valid Upto / Status in header)
+        // Fallback: older grids — same column detection + junk filtering as main parser
         if (!out.plan_name) {
             for (const tbl of tables) {
+                const tblBlob = norm(tbl.innerText || '');
+                const tblLo = tblBlob.toLowerCase();
+                if (
+                    /a[-\\s]?la[-\\s]?carte/i.test(tblLo) &&
+                    !tblLo.includes('hathway bouquet') &&
+                    !/plan\\s*name/i.test(tblBlob.slice(0, 6000))
+                )
+                    continue;
+
                 const rows = [...tbl.querySelectorAll('tr')];
-                for (let ri = 0; ri < Math.min(rows.length, 20); ri++) {
-                    const hdrTr = rows[ri];
-                    const hdrCells = [...hdrTr.querySelectorAll('th, td')];
-                    if (hdrCells.length < 2) continue;
+                for (let ri = 0; ri < Math.min(rows.length, 24); ri++) {
+                    const hdrCells = [...rows[ri].querySelectorAll('th, td')];
+                    if (hdrCells.length < 3) continue;
                     const headers = hdrCells.map((c) => norm(c.textContent).toLowerCase());
                     const planIdx = headers.findIndex((h) =>
                         (h.includes('plan') && h.includes('name')) ||
@@ -609,25 +1069,50 @@ def _hathway_scrape_pack_management_dom(page):
                         h === 'bouquet name' ||
                         (h.includes('plan') && !h.includes('status') && !h.includes('valid'))
                     );
-                    const lcoIdx = headers.findIndex((h) =>
-                        (h.includes('lco') && h.includes('price')) || h === 'lco price' || /^lco\\s*rs/.test(h)
-                    );
+                    const lcoIdx = priceColumnIndex(headers);
                     if (planIdx < 0 || lcoIdx < 0) continue;
-                    const stIdx = statusColumnIndex(headers);
-                    const vuIdx = headers.findIndex((h) => h.includes('valid') && h.includes('upto'));
+                    let vuIdx = validUpToColumnIndex(headers);
+                    let stIdx = statusColFromHeaders(headers);
+                    if (stIdx < 0) stIdx = statusColumnIndex(headers);
+
                     for (let j = ri + 1; j < rows.length; j++) {
-                        const tr2 = rows[j];
-                        const cells = [...tr2.querySelectorAll('td, th')];
-                        if (cells.length <= Math.max(planIdx, lcoIdx)) continue;
-                        const pname = norm(cells[planIdx].textContent || '');
-                        const lco = norm(cells[lcoIdx].textContent || '');
+                        const cells = [...rows[j].querySelectorAll('td, th')];
+                        const idxNeed = [planIdx, lcoIdx];
+                        if (vuIdx >= 0) idxNeed.push(vuIdx);
+                        if (stIdx >= 0) idxNeed.push(stIdx);
+                        const need = Math.max(...idxNeed);
+                        if (cells.length <= need) continue;
+
+                        let pname = norm(cells[planIdx].textContent || '');
+                        if (isAlacartePlanName(pname)) continue;
+
+                        let vu =
+                            vuIdx >= 0 && cells.length > vuIdx ? norm(cells[vuIdx].textContent || '') : '';
+                        let rst =
+                            stIdx >= 0 && cells.length > stIdx ? norm(cells[stIdx].textContent || '') : '';
+
                         if (junkPlanCell(pname)) continue;
                         if (pname.length < 2) continue;
-                        if (!/[0-9]/.test(lco) && !/[0-9]/.test(pname)) continue;
+                        if (/^(plan name|sd|hd|total|mrp)$/i.test(pname)) continue;
+
+                        vu = refineValidUpto(vu, pname, cells);
+
+                        if (junkStatusCell(rst)) rst = inferStatusFromCells(cells);
+
+                        const rl = resolveRowLco(cells, lcoIdx, vuIdx, vu, out);
+                        let lco = rl.lco;
+                        let lcoDigits = rl.lcoDigits;
+                        let lcoNum = rl.lcoNum;
+                        if (!/[0-9]/.test(String(lcoDigits || lco || ''))) continue;
+                        if (!rst || /^view$/i.test(rst) || junkStatusCell(rst)) continue;
+
                         out.plan_name = pname;
                         out.plan_lco_price = lco.replace(/^rs\\.?\\s*/i, '').trim();
-                        if (stIdx >= 0 && cells[stIdx]) out.plan_status = norm(cells[stIdx].textContent || '');
-                        if (vuIdx >= 0 && cells[vuIdx]) out.plan_valid_upto = norm(cells[vuIdx].textContent || '');
+                        out.plan_valid_upto = vu;
+                        out.plan_status = rst;
+                        out.main_tv_row_status = rst;
+                        if (/^inactive$/i.test(rst)) out.tv_table_status = 'INACTIVE';
+                        else if (/^active$/i.test(rst)) out.tv_table_status = 'ACTIVE';
                         ri = rows.length;
                         break;
                     }
@@ -645,6 +1130,34 @@ _JUNK_HATHWAY_TEXT = re.compile(
     r'Pack\s+Management|Customer\s+Details|Search\s+By|Distributor\s+Name|Enter\s+VCID|VC/Mac',
     re.I,
 )
+
+_HATHWAY_SCRAPE_HEADER_JUNK = re.compile(
+    r'plan\s*name|sd\s*hd|sdhd|total\s*mrp|package\s*name|hathway\s*bouquet|a[-\s]?la[-\s]?carte',
+    re.I,
+)
+
+
+def _hathway_sanitize_scraped_valid_upto(val):
+    if val is None:
+        return ''
+    s = ' '.join(str(val).split()).strip()
+    if not s:
+        return ''
+    compact = re.sub(r'[\s\-]+', '', s.lower())
+    if _HATHWAY_SCRAPE_HEADER_JUNK.search(compact):
+        return ''
+    return s
+
+
+def _hathway_sanitize_scraped_status(val):
+    if val is None:
+        return ''
+    s = ' '.join(str(val).split()).strip()
+    if not s:
+        return ''
+    if re.fullmatch(r'status|stb\s*status', s, re.I):
+        return ''
+    return s
 
 
 def _hathway_clean_display_field(val, max_len=100):
@@ -672,6 +1185,27 @@ def _hathway_format_rs(val):
     return f'Rs. {num}'
 
 
+def _hathway_audit_norm_cmp_key(s):
+    if s is None:
+        return ''
+    return ' '.join(str(s).split()).lower().strip()
+
+
+def _hathway_extract_date_from_data_dict(data):
+    """If valid_upto was wrongly copied (e.g. plan name), try DD-MON-YY date elsewhere in scrape."""
+    if not isinstance(data, dict):
+        return ''
+    skip = {'plan_name', 'plan_valid_upto'}
+    pat = re.compile(r'\b\d{1,2}-[A-Za-z]{3}-\d{2,4}\b', re.I)
+    for k, v in data.items():
+        if k in skip or not isinstance(v, str) or not v.strip():
+            continue
+        m = pat.search(v)
+        if m:
+            return m.group(0)
+    return ''
+
+
 def hathway_audit_to_dict(data, search_value, success=True, error=None):
     """Normalize Hathway scrape for Telegram (aligns loosely with Railtel audit keys)."""
     if not success:
@@ -685,9 +1219,12 @@ def hathway_audit_to_dict(data, search_value, success=True, error=None):
             return False
         return (data.get('tv_table_status') or '').strip().upper() == 'ACTIVE'
 
-    is_active = _online_from_status_blob(
-        data.get('main_tv_row_status') or data.get('plan_status') or data.get('tv_table_status')
-    )
+    status_blob = (
+        data.get('main_tv_row_status') or data.get('plan_status') or data.get('tv_table_status') or ''
+    ).strip()
+    status_blob = _hathway_sanitize_scraped_status(status_blob)
+
+    is_active = _online_from_status_blob(status_blob)
 
     plan_raw = (data.get('plan_name') or '').strip()
     scheme_raw = (data.get('scheme_name') or '').strip()
@@ -695,14 +1232,23 @@ def hathway_audit_to_dict(data, search_value, success=True, error=None):
     scheme_clean = _hathway_clean_display_field(scheme_raw, max_len=90)
     pack_for_bot = plan_clean or scheme_clean
 
-    lco_raw = (data.get('plan_lco_price') or data.get('total_lco_price') or '').strip()
-    lco_display = _hathway_format_rs(lco_raw) or _hathway_format_rs(data.get('total_lco_price'))
+    # Prefer the header-level Total LCO Price shown above the bouquet grid when present.
+    lco_raw = (data.get('total_lco_price') or data.get('plan_lco_price') or '').strip()
+    lco_display = _hathway_format_rs(lco_raw) or _hathway_format_rs(data.get('plan_lco_price'))
 
-    status_display = _hathway_clean_display_field(
-        data.get('main_tv_row_status') or data.get('plan_status') or data.get('tv_table_status'),
-        40,
-    )
-    valid_upto_display = _hathway_clean_display_field(data.get('plan_valid_upto'), 32)
+    status_display = _hathway_clean_display_field(status_blob, 40)
+    vu_raw = _hathway_sanitize_scraped_valid_upto(data.get('plan_valid_upto'))
+    if vu_raw and plan_clean and _hathway_audit_norm_cmp_key(vu_raw) == _hathway_audit_norm_cmp_key(plan_clean):
+        vu_raw = _hathway_sanitize_scraped_valid_upto(_hathway_extract_date_from_data_dict(data)) or ''
+    valid_upto_display = _hathway_clean_display_field(vu_raw, 32)
+
+    fallback_expiry_raw = (data.get('plan_valid_upto') or '')[:32]
+    if (
+        plan_clean
+        and fallback_expiry_raw.strip()
+        and _hathway_audit_norm_cmp_key(fallback_expiry_raw) == _hathway_audit_norm_cmp_key(plan_clean)
+    ):
+        fallback_expiry_raw = ''
 
     lines = []
     if data.get('customer_name'):
@@ -727,14 +1273,16 @@ def hathway_audit_to_dict(data, search_value, success=True, error=None):
         'session_days': 0,
         'downtime': summary,
         'mac': data.get('stb_no') or '',
-        'expiry': valid_upto_display or (data.get('plan_valid_upto') or '')[:32],
+        'expiry': valid_upto_display or fallback_expiry_raw,
         'hathway_tv_status': status_display or (data.get('tv_table_status') or ''),
         'hathway_total_lco_price': (data.get('total_lco_price') or '').replace(',', '') if data.get('total_lco_price') else '',
         'hathway_total_customer_price': (data.get('total_customer_price') or '').replace(',', '') if data.get('total_customer_price') else '',
         'hathway_scheme_name': scheme_clean or scheme_raw[:90] if scheme_raw else '',
         'hathway_plan_name': pack_for_bot,
         'hathway_plan_lco_price': _hathway_clean_display_field(data.get('plan_lco_price'), 24),
-        'hathway_plan_status': _hathway_clean_display_field(data.get('plan_status'), 40),
+        'hathway_plan_status': _hathway_clean_display_field(
+            _hathway_sanitize_scraped_status(data.get('plan_status')), 40
+        ),
         'hathway_action_buttons': [],
         'hathway_bot_lco_display': lco_display,
         'hathway_valid_upto': valid_upto_display,
@@ -1802,6 +2350,103 @@ def _hathway_try_cancel_playwright_on_roots(roots, page):
         return True
     return False
 
+def _hathway_pw_click_bouquet_renew(ctx):
+    """Pick the RENEW control nearest the Active row action column (Playwright; iframe-safe)."""
+    try:
+        tbl = ctx.locator('table').filter(has_text=re.compile(r'Hathway\s*Bouquet|Plan\s*Name', re.I)).first
+        if tbl.count() == 0:
+            return False
+        row = tbl.locator('tr').filter(has_text=re.compile(r'\bActive\b', re.I)).first
+        if row.count() == 0:
+            return False
+        acell = row.locator('td').last
+        if acell.count() == 0:
+            return False
+        ab = acell.bounding_box()
+        if not ab:
+            return False
+        ax = ab['x'] + ab['width'] / 2
+        renew_re = re.compile(r'^\s*RENEW\s*$', re.I)
+        factories = (
+            lambda c: c.get_by_text(renew_re),
+            lambda c: c.get_by_role('link', name=renew_re),
+            lambda c: c.get_by_role('button', name=renew_re),
+            lambda c: c.locator('a, button, span, div, input').filter(has_text=renew_re),
+        )
+        for factory in factories:
+            loc = factory(ctx)
+            try:
+                n = loc.count()
+            except Exception:
+                continue
+            if n == 0:
+                continue
+            best_i = -1
+            best_s = 1e9
+            for i in range(min(n, 50)):
+                el = loc.nth(i)
+                try:
+                    b = el.bounding_box()
+                    if not b:
+                        continue
+                    if b['width'] > 520 or b['height'] > 110:
+                        continue
+                    mx = b['x'] + b['width'] / 2
+                    if abs(mx - ax) > 320:
+                        continue
+                    score = abs(mx - ax)
+                    if b['y'] > ab['y'] - 2:
+                        score += 75
+                    if b['y'] + b['height'] <= ab['y'] + 12:
+                        score -= 35
+                    if score < best_s:
+                        best_s = score
+                        best_i = i
+                except Exception:
+                    continue
+            if best_i < 0:
+                continue
+            try:
+                tgt = loc.nth(best_i)
+                tgt.scroll_into_view_if_needed(timeout=5000)
+                tgt.click(timeout=10000, force=True)
+                return True
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
+
+
+def _hathway_cancel_pack_prompt_visible(page):
+    """True if cancel-pack confirmation sheet opened (mis-click when aiming for RENEW)."""
+    try:
+        body = page.locator('body').inner_text(timeout=3000)[:12000]
+    except Exception:
+        return False
+    return bool(
+        re.search(r'this\s+will\s+cancel\s+the\s+plan|cancel\s+the\s+plan\s+with\s+following', body, re.I)
+    )
+
+
+def _hathway_try_renew_playwright_on_roots(roots, page):
+    """Return True when renew dialog visible; retry reopen menu after cancel-pack mis-click."""
+    for ctx in roots:
+        if not _hathway_pw_click_bouquet_renew(ctx):
+            continue
+        page.wait_for_timeout(450)
+        if _hathway_bouquet_renew_misclick_visible(page):
+            return True
+        if _hathway_cancel_pack_prompt_visible(page):
+            _hathway_dismiss_renew_misclick(page)
+            if not _hathway_bouquet_row_menu_visible(page):
+                _hathway_click_bouquet_action_dropdown(page)
+            return 'retry'
+        return True
+    return False
+
+
+
 
 def _hathway_bouquet_row_menu_visible(page):
     js = """() => {
@@ -2084,6 +2729,865 @@ def _hathway_click_bouquet_action_dropdown(page):
         _hathway_remove_pack_step_pause(page)
 
     return False
+
+
+def _hathway_expired_plan_add_popup_visible(page):
+    """After ▼ on an Expired bouquet row: portal shows a prominent **ADD** control."""
+    add_lab = re.compile(r'^\s*ADD\s*$', re.I)
+    for ctx in _hathway_modal_search_roots(page):
+        try:
+            for loc in (
+                ctx.get_by_role('button', name=add_lab),
+                ctx.get_by_role('link', name=add_lab),
+                ctx.locator('input[type="button"], input[type="submit"]').filter(has_text=add_lab),
+            ):
+                if loc.count() > 0:
+                    try:
+                        if loc.first.is_visible(timeout=600):
+                            return True
+                    except Exception:
+                        continue
+        except Exception:
+            continue
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                    const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+                    const nodes = [...document.querySelectorAll(
+                        'button, a, input[type="button"], input[type="submit"], span'
+                    )];
+                    for (const el of nodes) {
+                        if (!el.offsetParent) continue;
+                        const t = norm(el.value || el.innerText || el.textContent || '');
+                        if (!/^ADD$/i.test(t)) continue;
+                        const r = el.getBoundingClientRect();
+                        if (r.width < 14 || r.height < 8) continue;
+                        return true;
+                    }
+                    return false;
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
+def _hathway_click_manage_expired_plans_main_tv(page):
+    """Main TV → **Manage Expired Plans** (toolbar under Action Required)."""
+    cleanup_hathway_ui(page)
+    label = re.compile(r'Manage\s+Expired\s+Plans', re.I)
+    for ctx in _hathway_modal_search_roots(page):
+        try:
+            for loc in (
+                ctx.get_by_role('button', name=label),
+                ctx.get_by_role('link', name=label),
+                ctx.locator('input[type="button"], input[type="submit"]').filter(has_text=label),
+            ):
+                if loc.count() == 0:
+                    continue
+                el = loc.first
+                if el.is_visible(timeout=2800):
+                    el.scroll_into_view_if_needed(timeout=6000)
+                    el.click(timeout=12000, force=True)
+                    return True
+        except Exception:
+            continue
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                    const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                    const want = /manage\\s+expired\\s+plans/;
+                    for (const el of document.querySelectorAll(
+                        'input[type="button"], input[type="submit"], button, a, span[onclick], td[onclick]'
+                    )) {
+                        if (!el.offsetParent) continue;
+                        const t = norm(el.value || el.innerText || el.textContent || '');
+                        if (!want.test(t)) continue;
+                        try {
+                            el.scrollIntoView({ block: 'center', inline: 'nearest' });
+                        } catch (e) {}
+                        el.click();
+                        return true;
+                    }
+                    return false;
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
+def _hathway_click_quick_recharge(page):
+    """Click **Quick Recharge** under Action Required.
+
+    Portal renders this as a styled tile (often ``div`` / ``span`` / ``td``, not ``<button>``).
+    When two tiles exist (toolbar wraps), prefer the **lower / second-row** hit (largest viewport ``top``).
+    """
+    cleanup_hathway_ui(page)
+    loose = re.compile(r'Quick\s+Recharge', re.I)
+    exactish = re.compile(r'^\s*Quick\s+Recharge\s*$', re.I)
+
+    def _pw_collect_click(ctx):
+        ranked = []
+        groups = (
+            ctx.get_by_role('button', name=loose),
+            ctx.get_by_role('link', name=loose),
+            ctx.locator('input[type="button"], input[type="submit"]').filter(has_text=loose),
+            ctx.locator('[role="button"]').filter(has_text=loose),
+            ctx.locator('div, span, td, li, a').filter(has_text=exactish),
+        )
+        for grp in groups:
+            try:
+                n = grp.count()
+                for i in range(min(n, 18)):
+                    el = grp.nth(i)
+                    try:
+                        if not el.is_visible(timeout=950):
+                            continue
+                        box = el.bounding_box()
+                        if not box or box['width'] < 4 or box['height'] < 4:
+                            continue
+                        ranked.append((box['y'], box['x'], el))
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        ranked.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        for _, __, el in ranked:
+            try:
+                el.scroll_into_view_if_needed(timeout=6000)
+                el.click(timeout=12000, force=True)
+                return True
+            except Exception:
+                continue
+        return False
+
+    for ctx in _hathway_modal_search_roots(page):
+        if _pw_collect_click(ctx):
+            return True
+
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                    const norm = (s) =>
+                        (s || '')
+                            .replace(/\\u00a0/g, ' ')
+                            .replace(/\\s+/g, ' ')
+                            .trim()
+                            .toLowerCase();
+                    const visible = (el) => {
+                        if (!el || !el.getBoundingClientRect) return false;
+                        let e = el;
+                        for (let d = 0; d < 14 && e; d++) {
+                            const st = window.getComputedStyle(e);
+                            if (
+                                st.display === 'none' ||
+                                st.visibility === 'hidden' ||
+                                Number.parseFloat(st.opacity || '1') === 0
+                            ) {
+                                return false;
+                            }
+                            e = e.parentElement;
+                        }
+                        const r = el.getBoundingClientRect();
+                        return r.width > 3 && r.height > 3;
+                    };
+                    const labelOk = (el) => {
+                        const raw = norm(el.innerText || el.textContent || el.value || '');
+                        if (raw.length > 48) return false;
+                        return /^quick\\s+recharge$/.test(raw);
+                    };
+                    const hits = [];
+                    for (const el of document.querySelectorAll(
+                        'button, a, input[type="button"], input[type="submit"], span, div, td, li, [role="button"], label'
+                    )) {
+                        if (!visible(el)) continue;
+                        if (!labelOk(el)) continue;
+                        const r = el.getBoundingClientRect();
+                        hits.push({ el, top: r.top, left: r.left });
+                    }
+                    hits.sort((a, b) => b.top - a.top || b.left - a.left);
+                    for (const { el } of hits) {
+                        try {
+                            el.scrollIntoView({ block: 'center', inline: 'nearest' });
+                        } catch (e) {}
+                        try {
+                            el.dispatchEvent(
+                                new MouseEvent('click', { bubbles: true, cancelable: true, view: window })
+                            );
+                        } catch (e) {}
+                        if (typeof el.click === 'function') el.click();
+                        return true;
+                    }
+                    return false;
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
+def _hathway_quick_recharge_click_plan_details_submit(page):
+    """Plan Details area → primary **submit** (paired with Reset); avoids unrelated submits."""
+    cleanup_hathway_ui(page)
+    page.wait_for_timeout(450)
+    submit_lab = re.compile(r'^\s*submit\s*$', re.I)
+    for ctx in _hathway_modal_search_roots(page):
+        try:
+            for loc in (
+                ctx.get_by_role('button', name=submit_lab),
+                ctx.locator('input[type="submit"], input[type="button"]').filter(has_text=submit_lab),
+            ):
+                if loc.count() == 0:
+                    continue
+                for i in range(min(loc.count(), 14)):
+                    el = loc.nth(i)
+                    try:
+                        if el.is_visible(timeout=1400):
+                            el.scroll_into_view_if_needed(timeout=6000)
+                            el.click(timeout=12000, force=True)
+                            return True
+                    except Exception:
+                        continue
+        except Exception:
+            continue
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                    const norm = (s) =>
+                        (s || '')
+                            .replace(/\\u00a0/g, ' ')
+                            .replace(/\\s+/g, ' ')
+                            .trim()
+                            .toLowerCase();
+                    const visible = (el) => {
+                        if (!el || !el.offsetParent) return false;
+                        const r = el.getBoundingClientRect();
+                        return r.width > 2 && r.height > 2;
+                    };
+                    const inPlanRegion = (el) => {
+                        let n = el;
+                        for (let i = 0; i < 18 && n; i++, n = n.parentElement) {
+                            const t = norm(n.innerText || '').slice(0, 1400);
+                            if (/plan\\s*details/.test(t) || /hathway\\s*bouquet/.test(t)) return true;
+                        }
+                        return false;
+                    };
+                    const hits = [];
+                    for (const el of document.querySelectorAll(
+                        'button, input[type="submit"], input[type="button"], a'
+                    )) {
+                        if (!visible(el)) continue;
+                        const t = norm(el.value || el.innerText || el.textContent || '');
+                        if (t !== 'submit') continue;
+                        const r = el.getBoundingClientRect();
+                        hits.push({ el, r, ok: inPlanRegion(el) });
+                    }
+                    hits.sort((a, b) => {
+                        if (a.ok !== b.ok) return a.ok ? -1 : 1;
+                        return b.r.bottom - a.r.bottom;
+                    });
+                    const pick = hits[0];
+                    if (!pick) return false;
+                    try {
+                        pick.el.scrollIntoView({ block: 'center', inline: 'nearest' });
+                    } catch (e) {}
+                    pick.el.click();
+                    return true;
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
+def _hathway_manage_expired_click_tab(page, pattern):
+    """Click a Pack Management tab by regex name (Customer Details / Main TV); best-effort."""
+    try:
+        tab = page.get_by_role('tab', name=pattern).first
+        if tab.count() > 0 and tab.is_visible(timeout=2400):
+            tab.click(timeout=9000, force=True)
+            page.wait_for_timeout(500)
+            cleanup_hathway_ui(page)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _hathway_scroll_hathway_bouquet_heading_into_view(page):
+    """Ensure the Hathway Bouquet section is scrolled into view on *page*."""
+    try:
+        loc = page.get_by_text(re.compile(r'Hathway\s*Bouquet', re.I)).first
+        if loc.count() > 0:
+            loc.scroll_into_view_if_needed(timeout=12000)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _hathway_focus_manage_expired_plans_page(page):
+    """Use newly opened tab/window if the portal opens Manage Expired Plans separately."""
+    try:
+        ctx = page.context
+    except Exception:
+        return page
+    page.wait_for_timeout(600)
+    try:
+        ordered = list(ctx.pages)
+    except Exception:
+        return page
+    for p in reversed(ordered):
+        try:
+            if p.is_closed():
+                continue
+            u = (p.url or '').lower()
+            if 'expired' in u or 'manageexpired' in u.replace('_', '').replace('-', ''):
+                p.bring_to_front()
+                return p
+        except Exception:
+            continue
+    page.wait_for_timeout(1400)
+    try:
+        ordered = list(ctx.pages)
+    except Exception:
+        return page
+    for p in reversed(ordered):
+        try:
+            if p.is_closed():
+                continue
+            loc = p.get_by_text(re.compile(r'Manage\s+Expired\s+Plans', re.I))
+            if loc.count() > 0:
+                try:
+                    loc.first.wait_for(state='visible', timeout=4000)
+                    p.bring_to_front()
+                    return p
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    return page
+
+
+def _hathway_click_expired_bouquet_action_dropdown(page):
+    """Manage Expired Plans → Hathway Bouquet **Expired** row → Action ▼ (opens ADD tooltip)."""
+    menu_wait = _hathway_bouquet_menu_wait_ms()
+    _hathway_remove_pack_step_pause(page)
+
+    def _js_click_main(ctx_p):
+        return ctx_p.evaluate(
+            """() => {
+            const norm = (s) =>
+                (s || '')
+                    .replace(/\\u00a0/g, ' ')
+                    .replace(/\\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+            const visible = (el) => {
+                if (!el || !el.getBoundingClientRect) return false;
+                let e = el;
+                for (let d = 0; d < 16 && e; d++) {
+                    const st = window.getComputedStyle(e);
+                    if (st.display === 'none' || st.visibility === 'hidden' || Number.parseFloat(st.opacity || '1') === 0) {
+                        return false;
+                    }
+                    e = e.parentElement;
+                }
+                const r = el.getBoundingClientRect();
+                return r.width > 1 && r.height > 1;
+            };
+            const fireClick = (el) => {
+                if (!el || !visible(el)) return false;
+                try {
+                    el.dispatchEvent(
+                        new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window })
+                    );
+                    el.dispatchEvent(
+                        new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window })
+                    );
+                    el.dispatchEvent(
+                        new MouseEvent('click', { bubbles: true, cancelable: true, view: window })
+                    );
+                } catch (e) {}
+                if (typeof el.click === 'function') el.click();
+                return true;
+            };
+            const rectArea = (el) => {
+                const r = el.getBoundingClientRect();
+                return Math.max(1, r.width) * Math.max(1, r.height);
+            };
+            /** Expired-row ▼ is usually a tiny ASP.NET image hyperlink (<a><img>), not a native button. */
+            const clickExpiredRowDropdownCell = (cell) => {
+                if (!cell || !visible(cell)) return false;
+                const tryEl = (el) => !!(el && visible(el) && fireClick(el));
+
+                const anchors = [...cell.querySelectorAll('a[href]')].filter(visible);
+                anchors.sort((a, b) => rectArea(a) - rectArea(b));
+                for (const a of anchors) {
+                    const href = ((a.getAttribute('href') || '') + '').toLowerCase();
+                    const hasImg = !!a.querySelector('img');
+                    if (
+                        hasImg ||
+                        href.includes('__dopostback') ||
+                        href.startsWith('javascript:')
+                    ) {
+                        if (tryEl(a)) return true;
+                    }
+                }
+
+                const imgsInAnchors = new Set();
+                for (const a of anchors) {
+                    for (const im of a.querySelectorAll('img')) imgsInAnchors.add(im);
+                }
+                const loneImgs = [...cell.querySelectorAll('img')].filter(
+                    (im) => visible(im) && !imgsInAnchors.has(im) && rectArea(im) <= 14000
+                );
+                loneImgs.sort((a, b) => rectArea(a) - rectArea(b));
+                for (const im of loneImgs) {
+                    if (tryEl(im)) return true;
+                }
+
+                for (const inp of cell.querySelectorAll('input[type="image"]')) {
+                    if (tryEl(inp)) return true;
+                }
+
+                const order = [
+                    'input[type="button"]',
+                    'input[type="submit"]',
+                    'button',
+                    'img',
+                    '[onclick]',
+                    'span',
+                    'div',
+                ];
+                for (const sel of order) {
+                    for (const n of cell.querySelectorAll(sel)) {
+                        if (!visible(n)) continue;
+                        const tag = (n.tagName || '').toLowerCase();
+                        const r = n.getBoundingClientRect();
+                        if ((tag === 'span' || tag === 'div') && r.width * r.height > 12000) continue;
+                        if (fireClick(n)) return true;
+                    }
+                }
+                return fireClick(cell);
+            };
+
+            const tables = [...document.querySelectorAll('table')].filter(visible);
+            const scored = tables
+                .map((tbl) => {
+                    const tx = norm(tbl.innerText);
+                    let sc = 0;
+                    if (tx.includes('hathway bouquet')) sc = 3;
+                    else if (tx.includes('plan name') && tx.includes('lco')) sc = 2;
+                    else if (tx.includes('plan name')) sc = 1;
+                    return { tbl, sc };
+                })
+                .filter((x) => x.sc > 0)
+                .sort((a, b) => b.sc - a.sc);
+
+            for (const { tbl } of scored) {
+                const rows = [...tbl.querySelectorAll('tr')];
+                let planIdx = -1;
+                let statusIdx = -1;
+                let actionIdx = -1;
+                let headerRow = -1;
+                for (let ri = 0; ri < Math.min(rows.length, 40); ri++) {
+                    const cells = [...rows[ri].querySelectorAll('th, td')];
+                    if (cells.length < 4) continue;
+                    const headers = cells.map((c) => norm(c.textContent));
+                    const hasPlan = headers.some(
+                        (h) => h === 'plan name' || (h.includes('plan') && h.includes('name'))
+                    );
+                    if (!hasPlan) continue;
+                    planIdx = headers.findIndex((h) => h === 'plan name' || (h.includes('plan') && h.includes('name')));
+                    if (planIdx < 0) planIdx = 0;
+                    statusIdx = headers.findIndex((h) => h === 'status' || /^stb\\s*status$/.test(h));
+                    if (statusIdx < 0) {
+                        statusIdx = headers.findIndex((h) => h.includes('status') && !h.includes('suspension'));
+                    }
+                    if (statusIdx < 0) statusIdx = headers.length - 2;
+                    actionIdx = headers.findIndex((h) => h === 'action' || h === 'actions');
+                    if (actionIdx < 0) actionIdx = cells.length - 1;
+                    headerRow = ri;
+                    for (let j = headerRow + 1; j < rows.length; j++) {
+                        const cs = [...rows[j].querySelectorAll('td')];
+                        if (cs.length < 2) continue;
+                        const rowT = norm(rows[j].innerText || '');
+                        if (!/\\bexpired\\b/i.test(rowT)) continue;
+                        if (/^\\s*total/i.test(rowT)) continue;
+                        if (rowT.length < 20 && /plan name|lco price|valid upto|hathway bouquet/i.test(rowT)) continue;
+                        const n = cs.length;
+                        const planI = Math.min(Math.max(planIdx, 0), n - 1);
+                        let actionI = actionIdx >= 0 && actionIdx < n ? actionIdx : n - 1;
+                        const pn = norm(cs[planI]?.textContent || '');
+                        const pnBad = !pn || pn.length < 2 || /^(plan name|total|mrp)$/i.test(pn);
+                        if (pnBad && rowT.length < 40) continue;
+                        const tryIdx = [];
+                        const push = (x) => {
+                            if (x >= 0 && x < n && !tryIdx.includes(x)) tryIdx.push(x);
+                        };
+                        push(actionI);
+                        push(n - 1);
+                        push(n - 2);
+                        push(n - 3);
+                        for (const ci of tryIdx) {
+                            if (clickExpiredRowDropdownCell(cs[ci])) return true;
+                        }
+                    }
+                    break;
+                }
+            }
+            return false;
+        }"""
+        )
+
+    def _js_click_last_cell(ctx_p):
+        return ctx_p.evaluate(
+            """() => {
+                const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                const visible = (el) => {
+                    if (!el || !el.getBoundingClientRect) return false;
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 2 || r.height < 2) return false;
+                    const st = window.getComputedStyle(el);
+                    return st.display !== 'none' && st.visibility !== 'hidden';
+                };
+                const rectArea = (el) => {
+                    const r = el.getBoundingClientRect();
+                    return Math.max(1, r.width) * Math.max(1, r.height);
+                };
+                const tables = [...document.querySelectorAll('table')].filter((t) => t.offsetParent);
+                for (const tbl of tables) {
+                    if (!norm(tbl.innerText).includes('hathway bouquet') && !norm(tbl.innerText).includes('plan name')) continue;
+                    const rows = [...tbl.querySelectorAll('tr')];
+                    for (const r of rows) {
+                        if (!/expired/i.test(r.innerText || '')) continue;
+                        const tds = [...r.querySelectorAll('td')];
+                        if (tds.length < 3) continue;
+                        for (let ti = tds.length - 1; ti >= Math.max(0, tds.length - 5); ti--) {
+                            const cell = tds[ti];
+                            const anchors = [...cell.querySelectorAll('a[href]')].filter(visible);
+                            anchors.sort((a, b) => rectArea(a) - rectArea(b));
+                            for (const a of anchors) {
+                                const href = ((a.getAttribute('href') || '') + '').toLowerCase();
+                                if (
+                                    a.querySelector('img') ||
+                                    href.includes('__dopostback') ||
+                                    href.startsWith('javascript:')
+                                ) {
+                                    a.click();
+                                    return true;
+                                }
+                            }
+                            for (const inp of cell.querySelectorAll('input[type="image"]')) {
+                                if (visible(inp)) {
+                                    inp.click();
+                                    return true;
+                                }
+                            }
+                            const el =
+                                cell.querySelector('input, a, button, img, [onclick]') || cell;
+                            if (visible(el)) {
+                                el.click();
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }"""
+        )
+
+    def _pw_click_action_cell(ctx_p):
+        try:
+            tbl = ctx_p.locator('table').filter(has_text=re.compile(r'Hathway\s*Bouquet', re.I)).first
+            if tbl.count() == 0:
+                tbl = (
+                    ctx_p.locator('table')
+                    .filter(has_text=re.compile(r'Plan\s*Name', re.I))
+                    .filter(has_text=re.compile(r'LCO', re.I))
+                    .first
+                )
+            if tbl.count() == 0:
+                return False
+            tbl.scroll_into_view_if_needed(timeout=10000)
+            row = tbl.locator('tr').filter(has_text=re.compile(r'\bExpired\b', re.I)).first
+            if row.count() == 0:
+                return False
+            row.scroll_into_view_if_needed(timeout=8000)
+            try:
+                ntd = row.locator('td').count()
+            except Exception:
+                ntd = 0
+            td_indices = []
+            if ntd > 0:
+                for off in range(0, min(6, ntd)):
+                    td_indices.append(ntd - 1 - off)
+            for ti in td_indices:
+                cell = row.locator('td').nth(ti)
+                img_links = cell.locator('a:has(img)')
+                try:
+                    ni = img_links.count()
+                    for ii in range(min(ni, 8)):
+                        el = img_links.nth(ii)
+                        try:
+                            if el.is_visible(timeout=1400):
+                                el.click(timeout=10000, force=True)
+                                return True
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+                for inner in (
+                    cell.locator('input[type="image"]'),
+                    cell.locator('a[href*="__doPostBack"]'),
+                    cell.locator('a[href*="doPostBack"]'),
+                    cell.locator('a[href^="javascript:"]'),
+                    cell.locator(
+                        'input[type="button"], input[type="submit"], a, button, img, [onclick]'
+                    ),
+                    cell,
+                ):
+                    try:
+                        if inner.count() == 0:
+                            continue
+                        el = inner.first
+                        if el.is_visible(timeout=1800):
+                            el.click(timeout=10000, force=True)
+                            return True
+                    except Exception:
+                        continue
+            return False
+        except Exception:
+            return False
+
+    for attempt in range(1, 4):
+        cleanup_hathway_ui(page)
+        roots = _hathway_pack_dom_roots(page)
+        for ctx in roots:
+            try:
+                tbl = ctx.locator('table').filter(has_text=re.compile(r'Hathway\s*Bouquet|Plan\s*Name', re.I)).first
+                if tbl.count():
+                    tbl.scroll_into_view_if_needed(timeout=10000)
+            except Exception:
+                pass
+        _hathway_remove_pack_step_pause(page)
+
+        clicked = False
+        for ctx in roots:
+            if _js_click_main(ctx):
+                clicked = True
+                break
+        if not clicked:
+            for ctx in roots:
+                if _js_click_last_cell(ctx):
+                    clicked = True
+                    break
+        if not clicked:
+            for ctx in roots:
+                if _pw_click_action_cell(ctx):
+                    clicked = True
+                    break
+        if not clicked:
+            _hathway_remove_pack_step_pause(page)
+            continue
+
+        page.wait_for_timeout(menu_wait)
+        if _hathway_expired_plan_add_popup_visible(page):
+            return True
+
+        for ctx in roots:
+            if _pw_click_action_cell(ctx):
+                page.wait_for_timeout(menu_wait)
+                if _hathway_expired_plan_add_popup_visible(page):
+                    return True
+                break
+
+        _hathway_remove_pack_step_pause(page)
+
+    return False
+
+
+def _hathway_click_expired_plan_popup_add(page):
+    """Click **ADD** on the tooltip/popover after Expired-row ▼."""
+    cleanup_hathway_ui(page)
+    page.wait_for_timeout(350)
+    add_lab = re.compile(r'^\s*ADD\s*$', re.I)
+    for ctx in _hathway_modal_search_roots(page):
+        for loc in (
+            ctx.get_by_role('button', name=add_lab).first,
+            ctx.get_by_role('link', name=add_lab).first,
+            ctx.locator('input[type="button"], input[type="submit"]').filter(has_text=add_lab).first,
+        ):
+            try:
+                if loc.count() > 0 and loc.is_visible(timeout=2500):
+                    loc.scroll_into_view_if_needed(timeout=5000)
+                    loc.click(timeout=10000, force=True)
+                    return True
+            except Exception:
+                continue
+    try:
+        return bool(
+            page.evaluate(
+                """() => {
+                    const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+                    const hits = [...document.querySelectorAll(
+                        'button, a, input[type="button"], input[type="submit"], span'
+                    )].filter((el) => {
+                        if (!el.offsetParent) return false;
+                        const t = norm(el.value || el.innerText || el.textContent || '');
+                        return /^ADD$/i.test(t);
+                    });
+                    hits.sort((a, b) => {
+                        const ra = a.getBoundingClientRect();
+                        const rb = b.getBoundingClientRect();
+                        return ra.top + ra.left - (rb.top + rb.left);
+                    });
+                    const pick = hits[hits.length - 1] || hits[0];
+                    if (!pick) return false;
+                    pick.click();
+                    return true;
+                }"""
+            )
+        )
+    except Exception:
+        return False
+
+
+def _hathway_add_new_plan_modal_click_add(page):
+    """Modal **Add New Plan** → primary **Add** (not Cancel)."""
+    _hathway_remove_pack_step_pause(page)
+    page.get_by_text(re.compile(r'Add\s+New\s+Plan', re.I)).first.wait_for(state='visible', timeout=90000)
+    page.wait_for_timeout(450)
+    modal = (
+        page.locator('[role="dialog"], .modal.in, .modal.show, .modal, .ui-dialog')
+        .filter(has_text=re.compile(r'Add\s+New\s+Plan', re.I))
+        .last
+    )
+    if modal.count() == 0:
+        modal = page.locator('body')
+    add_btn = re.compile(r'^\s*Add\s*$', re.I)
+    for btn in (
+        modal.get_by_role('button', name=add_btn).first,
+        modal.locator('input[type="submit"][value="Add" i]').first,
+        modal.locator('input[type="button"][value="Add" i]').first,
+    ):
+        try:
+            if btn.count() > 0 and btn.is_visible(timeout=4000):
+                btn.click(timeout=12000, force=True)
+                return
+        except Exception:
+            continue
+    raise RuntimeError('Add New Plan modal: Add button not found.')
+
+
+def _hathway_confirm_add_plan_modal_click_confirm(page):
+    """Confirmation — “This will add the plan…” → **Confirm**."""
+    _hathway_remove_pack_step_pause(page)
+    hint = re.compile(r'This\s+will\s+add\s+the\s+plan|add\s+the\s+plan\s+with\s+following', re.I)
+    if not _hathway_wait_visible_text_match(page, hint, timeout_ms=90000):
+        raise RuntimeError('Add-plan confirmation dialog did not appear.')
+    page.wait_for_timeout(450)
+    box = page.locator('[role="dialog"], .modal.in, .modal.show, .modal, .ui-dialog').filter(has_text=hint).last
+    if box.count() == 0:
+        box = page.locator('body')
+    for btn in (
+        box.get_by_role('button', name=re.compile(r'^\s*Confirm\s*$', re.I)).first,
+        box.locator('input[type="submit"][value*="Confirm" i]').first,
+        box.locator('input[type="button"][value*="Confirm" i]').first,
+    ):
+        try:
+            if btn.count() > 0 and btn.is_visible(timeout=4000):
+                btn.click(timeout=12000, force=True)
+                return
+        except Exception:
+            continue
+    raise RuntimeError('Add-plan confirmation: Confirm not found.')
+
+
+def _hathway_acknowledge_plan_add_success_popup(page):
+    """Dismiss final Message / OK if the portal shows one after Confirm."""
+    page.wait_for_timeout(700)
+    deadline = time.monotonic() + 38.0
+    while time.monotonic() < deadline:
+        clicked = False
+        for ctx in _hathway_modal_search_roots(page):
+            try:
+                lbl = ctx.locator('#MasterBody_lblPopupResponse')
+                if lbl.count() > 0 and lbl.first.is_visible(timeout=500):
+                    dlg = ctx.locator('[role="dialog"], .ui-dialog, .modal').filter(has_text=re.compile(r'Message', re.I)).last
+                    box = dlg if dlg.count() > 0 else ctx.locator('body')
+                    if _hathway_click_label_in_modal_container(box, 'OK'):
+                        clicked = True
+                        break
+            except Exception:
+                pass
+            try:
+                okc = ctx.get_by_role('button', name=re.compile(r'^\s*OK\s*$', re.I))
+                for i in range(min(okc.count(), 14) - 1, -1, -1):
+                    b = okc.nth(i)
+                    if b.is_visible(timeout=400):
+                        b.click(timeout=8000, force=True)
+                        clicked = True
+                        break
+            except Exception:
+                pass
+            if clicked:
+                break
+        if clicked:
+            page.wait_for_timeout(400)
+            cleanup_hathway_ui(page)
+            return
+        page.wait_for_timeout(280)
+    cleanup_hathway_ui(page)
+
+
+def _hathway_renew_via_quick_recharge(page):
+    """
+    **Main TV** or **Customer Details** → **Quick Recharge** → Plan Details **submit**
+    → Confirmation **Confirm** → **OK**.
+
+    Quick Recharge appears under Action Required on either tab depending on portal layout.
+
+    Returns (True, None) or (False, err_key).
+    """
+    try:
+        tab_attempts = (_hathway_ensure_main_tv_tab, _hathway_ensure_customer_details_tab)
+        qr_clicked = False
+        cleanup_hathway_ui(page)
+        if _hathway_click_quick_recharge(page):
+            qr_clicked = True
+        else:
+            for prepare_tab in tab_attempts:
+                prepare_tab(page)
+                page.wait_for_timeout(450)
+                cleanup_hathway_ui(page)
+                if _hathway_click_quick_recharge(page):
+                    qr_clicked = True
+                    break
+        if not qr_clicked:
+            return False, 'quick_recharge'
+        page.wait_for_timeout(int(os.getenv('HATHWAY_QUICK_RECHARGE_NAV_WAIT_MS', '2200')))
+        try:
+            page.wait_for_load_state('domcontentloaded', timeout=25000)
+        except Exception:
+            pass
+        cleanup_hathway_ui(page)
+        _hathway_scroll_hathway_bouquet_heading_into_view(page)
+        page.wait_for_timeout(400)
+        if not _hathway_quick_recharge_click_plan_details_submit(page):
+            return False, 'plan_submit'
+        page.wait_for_timeout(450)
+        _hathway_confirm_add_plan_modal_click_confirm(page)
+        _hathway_acknowledge_plan_add_success_popup(page)
+        return True, None
+    except Exception as e:
+        return False, f'modal:{e}'
 
 
 def _hathway_click_bouquet_menu_cancel(page):
@@ -2615,6 +4119,539 @@ def _hathway_click_bouquet_menu_cancel(page):
     return False
 
 
+def _hathway_click_bouquet_menu_renew(page):
+    """Click RENEW in the bouquet RENEW/CANCEL/CHANGE strip — uses viewport coordinates to avoid wrong .click() target."""
+    poll_ms = _hathway_cancel_menu_poll_ms()
+    deadline = time.monotonic() + poll_ms / 1000.0
+    first_pass = True
+
+    while time.monotonic() < deadline:
+        roots = _hathway_pack_dom_roots(page)
+        for ctx in roots:
+            try:
+                ctx.locator('table').filter(has_text=re.compile(r'Hathway\s*Bouquet|Plan\s*Name', re.I)).first.scroll_into_view_if_needed(
+                    timeout=10000
+                )
+            except Exception:
+                pass
+            try:
+                ctx.locator('tr').filter(has_text=re.compile(r'\bActive\b', re.I)).first.scroll_into_view_if_needed(timeout=8000)
+            except Exception:
+                pass
+        if first_pass:
+            _hathway_nudge_viewport_after_bouquet_menu_open(page)
+            first_pass = False
+        page.wait_for_timeout(250)
+
+        pw = _hathway_try_renew_playwright_on_roots(roots, page)
+        if pw is True:
+            return True
+        if pw == 'retry':
+            continue
+
+        pos = None
+        pos_ctx = None
+        for ctx in roots:
+            try:
+                p = ctx.evaluate(
+            """() => {
+                const norm = (s) =>
+                    (s || '')
+                        .replace(/\\u00a0/g, ' ')
+                        .replace(/[\\u200B-\\u200D\\uFEFF]/g, '')
+                        .replace(/\\s+/g, ' ')
+                        .trim()
+                        .toUpperCase();
+                const lab = (n) => {
+                    const t = (n.tagName || '').toUpperCase();
+                    let s = '';
+                    if (t === 'INPUT') s = n.value || n.alt || (n.getAttribute && n.getAttribute('value')) || '';
+                    else s = (n.innerText || n.textContent || '').trim();
+                    let out = norm(s);
+                    if (out !== 'RENEW' && out !== 'CANCEL' && out !== 'CHANGE') {
+                        const a = n.getAttribute && (n.getAttribute('aria-label') || n.getAttribute('title'));
+                        const alt = norm((a || '').trim());
+                        if (alt === 'RENEW' || alt === 'CANCEL' || alt === 'CHANGE') out = alt;
+                    }
+                    return out;
+                };
+
+                const findTable = () =>
+                    [...document.querySelectorAll('table')].find(
+                        (t) => t.offsetParent && /hathway\\s*bouquet/i.test((t.innerText || '').replace(/\\s+/g, ' '))
+                    ) ||
+                    [...document.querySelectorAll('table')].find(
+                        (t) =>
+                            t.offsetParent &&
+                            /plan\\s*name/i.test((t.innerText || '').toLowerCase()) &&
+                            /lco/i.test((t.innerText || '').toLowerCase())
+                    ) ||
+                    null;
+
+                const tbl = findTable();
+                if (!tbl) return null;
+                const activeTr = [...tbl.querySelectorAll('tr')].find((tr) => {
+                    if (!tr.offsetParent) return false;
+                    const x = (tr.innerText || '').replace(/\\s+/g, ' ');
+                    return /\\bActive\\b/i.test(x) && x.length < 1400;
+                });
+                if (!activeTr) return null;
+
+                const normH = (s) =>
+                    (s || '')
+                        .replace(/\\u00a0/g, ' ')
+                        .replace(/\\s+/g, ' ')
+                        .trim()
+                        .toLowerCase();
+
+                const resolveActionTd = (tbl0, atr) => {
+                    const rows = [...tbl0.querySelectorAll('tr')];
+                    let actionIdx = -1;
+                    for (let ri = 0; ri < Math.min(rows.length, 40); ri++) {
+                        const cells = [...rows[ri].querySelectorAll('th, td')];
+                        if (cells.length < 4) continue;
+                        const headers = cells.map((c) => normH(c.textContent));
+                        const hasPlan = headers.some(
+                            (h) => h === 'plan name' || (h.includes('plan') && h.includes('name'))
+                        );
+                        if (!hasPlan) continue;
+                        actionIdx = headers.findIndex((h) => h === 'action' || h === 'actions');
+                        if (actionIdx < 0) actionIdx = cells.length - 1;
+                        break;
+                    }
+                    const rowTds = [...atr.querySelectorAll('td')];
+                    if (!rowTds.length) return null;
+                    if (actionIdx >= 0 && actionIdx < rowTds.length) return rowTds[actionIdx];
+                    return rowTds[rowTds.length - 1];
+                };
+
+                let actionTd = resolveActionTd(tbl, activeTr);
+                if (!actionTd || !actionTd.offsetParent) return null;
+                const rowTds2 = [...activeTr.querySelectorAll('td')];
+                const hasChevronCell = (td) => {
+                    if (!td || !td.offsetParent) return false;
+                    const im = td.querySelector('input[type="image"], img');
+                    if (!im || !im.offsetParent) return false;
+                    const r = im.getBoundingClientRect();
+                    return r.width > 4 && r.width < 72 && r.height > 4 && r.height < 72;
+                };
+                if (!hasChevronCell(actionTd)) {
+                    for (let i = rowTds2.length - 1; i >= 0; i--) {
+                        if (hasChevronCell(rowTds2[i])) {
+                            actionTd = rowTds2[i];
+                            break;
+                        }
+                    }
+                }
+
+                const pickNear = (cx, arTop, arBot, activeTr0, actionTd0) => {
+                    const excludeTableCancelInRowPick = (n) =>
+                        activeTr0.contains(n) && !actionTd0.contains(n) && lab(n) === 'CANCEL';
+                    const sel =
+                        'a, button, input[type="button"], input[type="submit"], [role="button"], [role="menuitem"], td[onclick], span[onclick], span, div, label, li';
+                    const raw = [...document.querySelectorAll(sel)].filter((n) => {
+                        if (!n.offsetParent) return false;
+                        if (excludeTableCancelInRowPick(n)) return false;
+                        const r = n.getBoundingClientRect();
+                        if (r.width < 8 || r.height < 8 || r.width > 520) return false;
+                        const mx = r.left + r.width / 2;
+                        if (Math.abs(mx - cx) > 168) return false;
+                        const L = lab(n);
+                        if (L !== 'RENEW' && L !== 'CANCEL' && L !== 'CHANGE') return false;
+                        const above = r.bottom <= arTop + 48 && r.top >= arTop - 520;
+                        const overlapCol = r.top < arBot + 95 && r.bottom > arTop - 110 && Math.abs(mx - cx) < 168;
+                        return above || overlapCol;
+                    });
+                    raw.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+                    const centerOf = (el) => {
+                        const rr = el.getBoundingClientRect();
+                        return { x: rr.left + rr.width / 2, y: rr.top + rr.height / 2 };
+                    };
+                    const renewUnderPoint = (xx, yy) => {
+                        const hit = document.elementFromPoint(xx, yy);
+                        let z = hit;
+                        while (z) {
+                            if (lab(z) === 'RENEW') return { x: xx, y: yy };
+                            z = z.parentElement;
+                        }
+                        return null;
+                    };
+                    const nudgedPoint = (el) => {
+                        const c = centerOf(el);
+                        for (const dy of [0, -4, 4, -8, 8, -12, 12, -16, 16, -20, 20]) {
+                            for (const dx of [0, -4, 4, -8, 8]) {
+                                const ok = renewUnderPoint(c.x + dx, c.y + dy);
+                                if (ok) return ok;
+                            }
+                        }
+                        return { x: c.x, y: c.y };
+                    };
+                    for (let i = 0; i <= raw.length - 3; i++) {
+                        const st = raw.slice(i, i + 3);
+                        const ra = st[0].getBoundingClientRect();
+                        const rb = st[1].getBoundingClientRect();
+                        const rc = st[2].getBoundingClientRect();
+                        if (rb.top - ra.bottom > 40 || rc.top - rb.bottom > 40) continue;
+                        const la = lab(st[0]);
+                        const lb = lab(st[1]);
+                        const lc = lab(st[2]);
+                        let target = null;
+                        if (la === 'RENEW' && lb === 'CANCEL' && lc === 'CHANGE') target = st[0];
+                        else {
+                            const j = [la, lb, lc].indexOf('RENEW');
+                            if (j >= 0) target = st[j];
+                        }
+                        if (target) {
+                            return nudgedPoint(target);
+                        }
+                    }
+                    if (raw.length === 3) {
+                        const ra = raw[0].getBoundingClientRect();
+                        const rb = raw[1].getBoundingClientRect();
+                        const rc = raw[2].getBoundingClientRect();
+                        if (rb.top - ra.bottom < 40 && rc.top - rb.bottom < 40) {
+                            return nudgedPoint(raw[0]);
+                        }
+                    }
+                    return null;
+                };
+
+                const soloRenewNearAction = (cx, arTop, arBot, activeTr0, actionTd0) => {
+                    const excludeTableCancelInRowSolo = (n) =>
+                        activeTr0.contains(n) && !actionTd0.contains(n) && lab(n) === 'CANCEL';
+                    let best = null;
+                    let bestScore = 1e9;
+                    const nodes = document.querySelectorAll(
+                        'a, button, input[type="button"], input[type="submit"], span, div, label, li, [role="button"], [role="menuitem"], td'
+                    );
+                    for (const n of nodes) {
+                        if (!n.offsetParent) continue;
+                        if (excludeTableCancelInRowSolo(n)) continue;
+                        if (lab(n) !== 'RENEW') continue;
+                        const r = n.getBoundingClientRect();
+                        if (r.width < 8 || r.height < 8 || r.width > 440 || r.height > 88) continue;
+                        const mx = r.left + r.width / 2;
+                        if (Math.abs(mx - cx) > 175) continue;
+                        const above = r.bottom <= arTop + 48 && r.top >= arTop - 520;
+                        const overlapCol = r.top < arBot + 95 && r.bottom > arTop - 110 && Math.abs(mx - cx) < 175;
+                        if (!above && !overlapCol) continue;
+                        const score = Math.abs(mx - cx) + (above ? 0 : 40);
+                        if (score < bestScore) {
+                            bestScore = score;
+                            best = n;
+                        }
+                    }
+                    if (!best) return null;
+                    const centerOf = (el) => {
+                        const rr = el.getBoundingClientRect();
+                        return { x: rr.left + rr.width / 2, y: rr.top + rr.height / 2 };
+                    };
+                    const renewUnderPointSolo = (xx, yy) => {
+                        const hit = document.elementFromPoint(xx, yy);
+                        let z = hit;
+                        while (z) {
+                            if (lab(z) === 'RENEW') return { x: xx, y: yy };
+                            z = z.parentElement;
+                        }
+                        return null;
+                    };
+                    const c = centerOf(best);
+                    for (const dy of [0, -4, 4, -8, 8, -12, 12, -16, 16]) {
+                        for (const dx of [0, -4, 4, -8, 8]) {
+                            const ok = renewUnderPointSolo(c.x + dx, c.y + dy);
+                            if (ok) return ok;
+                        }
+                    }
+                    return { x: c.x, y: c.y };
+                };
+
+                const ar = actionTd.getBoundingClientRect();
+                if (ar.width < 6) return null;
+                const cx = ar.left + ar.width / 2;
+                const stacked = pickNear(cx, ar.top, ar.bottom, activeTr, actionTd);
+                if (stacked) return stacked;
+                return soloRenewNearAction(cx, ar.top, ar.bottom, activeTr, actionTd);
+            }"""
+                )
+            except Exception:
+                p = None
+            if isinstance(p, dict) and p.get('x') is not None and p.get('y') is not None:
+                pos, pos_ctx = p, ctx
+                break
+
+        if (
+            pos_ctx is not None
+            and isinstance(pos, dict)
+            and pos.get('x') is not None
+            and pos.get('y') is not None
+        ):
+            try:
+                if _hathway_viewport_click_at(pos_ctx, pos):
+                    page.wait_for_timeout(450)
+                    if _hathway_bouquet_renew_misclick_visible(page):
+                        return True
+                    if _hathway_cancel_pack_prompt_visible(page):
+                        _hathway_dismiss_renew_misclick(page)
+                        if not _hathway_bouquet_row_menu_visible(page):
+                            _hathway_click_bouquet_action_dropdown(page)
+                        continue
+                    return True
+            except Exception:
+                pass
+
+        clicked = False
+        for ctx in roots:
+            try:
+                c = ctx.evaluate(
+            """() => {
+                const vis = (el) => el && el.offsetParent;
+                const norm = (s) =>
+                    (s || '')
+                        .replace(/\\u00a0/g, ' ')
+                        .replace(/[\\u200B-\\u200D\\uFEFF]/g, '')
+                        .replace(/\\s+/g, ' ')
+                        .trim()
+                        .toUpperCase();
+                const normH = (s) =>
+                    (s || '')
+                        .replace(/\\u00a0/g, ' ')
+                        .replace(/\\s+/g, ' ')
+                        .trim()
+                        .toLowerCase();
+                const labelOf = (n) => {
+                    const tag = (n.tagName || '').toUpperCase();
+                    let s = '';
+                    if (tag === 'INPUT') s = n.value || n.alt || (n.getAttribute && n.getAttribute('value')) || '';
+                    else s = (n.innerText || n.textContent || '').trim();
+                    let out = norm(s);
+                    if (out !== 'RENEW' && out !== 'CANCEL' && out !== 'CHANGE') {
+                        const a = n.getAttribute && (n.getAttribute('aria-label') || n.getAttribute('title'));
+                        const alt = norm((a || '').trim());
+                        if (alt === 'RENEW' || alt === 'CANCEL' || alt === 'CHANGE') out = alt;
+                    }
+                    return out;
+                };
+                const rowLabel = (el) => {
+                    const tag = (el.tagName || '').toUpperCase();
+                    if (tag === 'INPUT') return norm(el.value || '');
+                    if (tag === 'A' || tag === 'BUTTON') return labelOf(el);
+                    const inner = el.querySelector('a,button,input');
+                    if (inner) return labelOf(inner);
+                    return norm((el.textContent || '').trim());
+                };
+                const findTable = () =>
+                    [...document.querySelectorAll('table')].find(
+                        (t) => t.offsetParent && /hathway\\s*bouquet/i.test((t.innerText || '').replace(/\\s+/g, ' '))
+                    ) ||
+                    [...document.querySelectorAll('table')].find(
+                        (t) =>
+                            t.offsetParent &&
+                            /plan\\s*name/i.test((t.innerText || '').toLowerCase()) &&
+                            /lco/i.test((t.innerText || '').toLowerCase())
+                    ) ||
+                    null;
+                const resolveActionTd = (tbl0, atr) => {
+                    const rows = [...tbl0.querySelectorAll('tr')];
+                    let actionIdx = -1;
+                    for (let ri = 0; ri < Math.min(rows.length, 40); ri++) {
+                        const cells = [...rows[ri].querySelectorAll('th, td')];
+                        if (cells.length < 4) continue;
+                        const headers = cells.map((c) => normH(c.textContent));
+                        const hasPlan = headers.some(
+                            (h) => h === 'plan name' || (h.includes('plan') && h.includes('name'))
+                        );
+                        if (!hasPlan) continue;
+                        actionIdx = headers.findIndex((h) => h === 'action' || h === 'actions');
+                        if (actionIdx < 0) actionIdx = cells.length - 1;
+                        break;
+                    }
+                    const rowTds = [...atr.querySelectorAll('td')];
+                    if (!rowTds.length) return null;
+                    if (actionIdx >= 0 && actionIdx < rowTds.length) return rowTds[actionIdx];
+                    return rowTds[rowTds.length - 1];
+                };
+                const clickLeaf = (el) => {
+                    const t = el.querySelector('a,button,input') || el;
+                    if (t && vis(t)) {
+                        t.click();
+                        return true;
+                    }
+                    return false;
+                };
+
+                const tbl = findTable();
+                if (!tbl) return false;
+                const activeTr = [...tbl.querySelectorAll('tr')].find((tr) => {
+                    if (!tr.offsetParent) return false;
+                    const x = (tr.innerText || '').replace(/\\s+/g, ' ');
+                    return /\\bActive\\b/i.test(x) && x.length < 1400;
+                });
+                if (!activeTr) return false;
+                let actionTd = resolveActionTd(tbl, activeTr);
+                if (!actionTd || !actionTd.offsetParent) return false;
+                const rowTds2 = [...activeTr.querySelectorAll('td')];
+                const hasChevronCell = (td) => {
+                    if (!td || !td.offsetParent) return false;
+                    const im = td.querySelector('input[type="image"], img');
+                    if (!im || !im.offsetParent) return false;
+                    const r = im.getBoundingClientRect();
+                    return r.width > 4 && r.width < 72 && r.height > 4 && r.height < 72;
+                };
+                if (!hasChevronCell(actionTd)) {
+                    for (let i = rowTds2.length - 1; i >= 0; i--) {
+                        if (hasChevronCell(rowTds2[i])) {
+                            actionTd = rowTds2[i];
+                            break;
+                        }
+                    }
+                }
+                const arAct = actionTd.getBoundingClientRect();
+                const ax = arAct.left + arAct.width / 2;
+                const rowTop = arAct.top;
+                const rowBot = arAct.bottom;
+                const nearMenuToAction = (r) => {
+                    const mx = r.left + r.width / 2;
+                    if (Math.abs(mx - ax) > 175) return false;
+                    if (r.bottom < rowTop - 520 || r.top > rowBot + 100) return false;
+                    return true;
+                };
+                const excludeTableCancelInRowMenu = (n) => activeTr.contains(n) && !actionTd.contains(n) && labelOf(n) === 'CANCEL';
+
+                const clickRenewAnchoredToBouquetAction = () => {
+                    const ar = arAct;
+                    const cx = ax;
+                    const cand = [...document.querySelectorAll(
+                        'a, button, input[type="button"], input[type="submit"], span, div, label, li, [role="button"], [role="menuitem"], td'
+                    )].filter((n) => {
+                            if (!n.offsetParent) return false;
+                            if (excludeTableCancelInRowPick(n)) return false;
+                            const labv = labelOf(n);
+                            if (labv !== 'RENEW' && labv !== 'CANCEL' && labv !== 'CHANGE') return false;
+                            const r = n.getBoundingClientRect();
+                            if (r.width < 8 || r.height < 8 || r.width > 520 || r.height > 90) return false;
+                            const mx = r.left + r.width / 2;
+                            if (Math.abs(mx - cx) > 168) return false;
+                            const above = r.bottom <= ar.top + 48 && r.top >= ar.top - 520;
+                            const besideRow =
+                                r.top < ar.bottom + 95 &&
+                                r.bottom > ar.top - 110 &&
+                                Math.abs(mx - cx) < 168;
+                            return above || besideRow;
+                        });
+                    const renewPick = cand.find((n) => labelOf(n) === 'RENEW');
+                    if (renewPick) {
+                        const leaf = renewPick.querySelector('a,button,input') || renewPick;
+                        if (leaf && vis(leaf)) leaf.click();
+                        else renewPick.click();
+                        return true;
+                    }
+                    return false;
+                };
+                if (clickRenewAnchoredToBouquetAction()) return true;
+
+                const clickTripleMenu = () => {
+                    for (const list of document.querySelectorAll('ul')) {
+                        if (!vis(list)) continue;
+                        if (!nearMenuToAction(list.getBoundingClientRect())) continue;
+                        const items = [...list.querySelectorAll(':scope > li')].filter(vis);
+                        if (items.length !== 3) continue;
+                        const labs = items.map(rowLabel);
+                        if (!labs.includes('RENEW') || !labs.includes('CANCEL') || !labs.includes('CHANGE')) continue;
+                        const mid = items.find((it) => rowLabel(it) === 'RENEW');
+                        if (mid && clickLeaf(mid)) return true;
+                    }
+                    for (const p of document.querySelectorAll('div')) {
+                        if (!vis(p)) continue;
+                        const ttxt = (p.innerText || '').replace(/\\s+/g, ' ').trim();
+                        if (ttxt.length > 80) continue;
+                        const kids = [...p.children].filter(vis);
+                        if (kids.length !== 3) continue;
+                        if (!nearMenuToAction(p.getBoundingClientRect())) continue;
+                        const labs = kids.map(rowLabel);
+                        if (!labs.includes('RENEW') || !labs.includes('CANCEL') || !labs.includes('CHANGE')) continue;
+                        const mid = kids.find((k) => rowLabel(k) === 'RENEW');
+                        if (mid && clickLeaf(mid)) return true;
+                    }
+                    for (const p of document.querySelectorAll('div, td, span')) {
+                        if (!vis(p)) continue;
+                        const kids = [...p.querySelectorAll(':scope > a, :scope > button, :scope > input')].filter(vis);
+                        if (kids.length !== 3) continue;
+                        if (!nearMenuToAction(p.getBoundingClientRect())) continue;
+                        const labs = kids.map(rowLabel);
+                        if (!labs.includes('RENEW') || !labs.includes('CANCEL') || !labs.includes('CHANGE')) continue;
+                        const mid = kids.find((k) => rowLabel(k) === 'RENEW');
+                        if (mid) {
+                            mid.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+                if (clickTripleMenu()) return true;
+
+                const clickRenewDirectNearAction = () => {
+                    const ar = arAct;
+                    const cx = ax;
+                    const excludeTableCancelInRowDirect = (n) =>
+                        activeTr.contains(n) && !actionTd.contains(n) && labelOf(n) === 'CANCEL';
+                    let best = null;
+                    let bestScore = 1e9;
+                    const nodes = document.querySelectorAll(
+                        'a, button, input[type="button"], input[type="submit"], span, div, label, li, [role="button"], [role="menuitem"], td'
+                    );
+                    for (const n of nodes) {
+                        if (!vis(n)) continue;
+                        if (excludeTableCancelInRowDirect(n)) continue;
+                        if (labelOf(n) !== 'RENEW') continue;
+                        const r = n.getBoundingClientRect();
+                        if (r.width < 8 || r.height < 8 || r.width > 440 || r.height > 88) continue;
+                        const mx = r.left + r.width / 2;
+                        if (Math.abs(mx - cx) > 175) continue;
+                        const above = r.bottom <= ar.top + 48 && r.top >= ar.top - 520;
+                        const overlapCol = r.top < ar.bottom + 95 && r.bottom > ar.top - 110 && Math.abs(mx - cx) < 175;
+                        if (!above && !overlapCol) continue;
+                        const score = Math.abs(mx - cx) + (above ? 0 : 35);
+                        if (score < bestScore) {
+                            bestScore = score;
+                            best = n;
+                        }
+                    }
+                    if (!best) return false;
+                    const leaf = best.querySelector('a,button,input') || best;
+                    if (leaf && vis(leaf)) {
+                        leaf.click();
+                        return true;
+                    }
+                    best.click();
+                    return true;
+                };
+                if (clickRenewDirectNearAction()) return true;
+
+                return false;
+            }"""
+                )
+            except Exception:
+                c = False
+            if c:
+                clicked = True
+                break
+
+        if clicked:
+            page.wait_for_timeout(450)
+            if _hathway_bouquet_renew_misclick_visible(page):
+                return True
+            if _hathway_cancel_pack_prompt_visible(page):
+                _hathway_dismiss_renew_misclick(page)
+                if not _hathway_bouquet_row_menu_visible(page):
+                    _hathway_click_bouquet_action_dropdown(page)
+                continue
+            return True
+
+        page.wait_for_timeout(700)
+
+    return False
+
+
 def _hathway_normalize_reason_compare(text):
     """Lowercase, unify dashes and spaces for option vs env reason matching."""
     if not text:
@@ -2927,6 +4964,114 @@ def _hathway_cancel_pack_modal_chain(page, cancel_reason):
     for okb in (
         dlg3.get_by_role('button', name=re.compile(r'^\s*OK\s*$', re.I)).first,
         page.get_by_role('button', name=re.compile(r'^\s*OK\s*$', re.I)).last,
+    ):
+        try:
+            if okb.count() == 0:
+                continue
+            if okb.is_visible(timeout=3000):
+                okb.click(timeout=10000, force=True)
+                break
+        except Exception:
+            continue
+    page.wait_for_timeout(800)
+    cleanup_hathway_ui(page)
+
+
+_HATHWAY_RENEW_DIALOG_HINT_RE = re.compile(
+    r'renew\s*my\s*pack|renew\s*subscription|pack\s*renewal|renew\s*plan\b|'
+    r'would\s*you\s*like\s*to\s*renew|renewal\s*request|renew\s*your\s*pack|subscribe\s*to\s*renew',
+    re.I,
+)
+
+
+def _hathway_renew_pack_modal_chain(page, renew_reason=None):
+    """Bouquet **RENEW** → optional reason → Confirm → optional Yes → success OK."""
+    _hathway_remove_pack_step_pause(page)
+    renew_reason = (renew_reason or os.getenv('HATHWAY_RENEW_REASON') or '').strip()
+
+    if not _hathway_wait_visible_text_match(page, _HATHWAY_RENEW_DIALOG_HINT_RE, timeout_ms=90000):
+        raise RuntimeError('Renew pack dialog did not appear (portal wording may differ).')
+
+    page.wait_for_timeout(450)
+    modal = (
+        page.locator('[role="dialog"], .modal.in, .modal.show, .modal, .ui-dialog')
+        .filter(has_text=_HATHWAY_RENEW_DIALOG_HINT_RE)
+        .last
+    )
+    if modal.count() == 0:
+        modal = page.locator('div').filter(has_text=_HATHWAY_RENEW_DIALOG_HINT_RE).last
+
+    if renew_reason:
+        try:
+            if modal.locator('select').count() > 0:
+                _hathway_modal_select_reason_only(page, modal, renew_reason)
+                wait_after = int(
+                    os.getenv(
+                        'HATHWAY_RENEW_REASON_WAIT_MS',
+                        os.getenv('HATHWAY_CANCEL_PACK_REASON_WAIT_MS', '1000'),
+                    )
+                )
+                page.wait_for_timeout(max(0, wait_after))
+        except Exception:
+            pass
+
+    clicked = False
+    for conf in (
+        modal.get_by_role('button', name=re.compile(r'^\s*Confirm\s*$', re.I)).first,
+        modal.locator('input[type="submit"][value*="Confirm" i]').first,
+        modal.locator('input[type="button"][value*="Confirm" i]').first,
+        modal.get_by_role('button', name=re.compile(r'^\s*Proceed\s*$', re.I)).first,
+    ):
+        try:
+            if conf.count() == 0:
+                continue
+            if conf.is_visible(timeout=3000):
+                conf.click(timeout=10000, force=True)
+                clicked = True
+                break
+        except Exception:
+            continue
+    if not clicked:
+        if not _hathway_modal_click_named(
+            page, _HATHWAY_RENEW_DIALOG_HINT_RE, re.compile(r'^\s*Confirm\s*$', re.I), timeout_ms=12000
+        ):
+            raise RuntimeError('Confirm not found on renew-pack dialog.')
+
+    page.wait_for_timeout(650)
+    box2 = page.locator('[role="dialog"], .ui-dialog, .modal').filter(
+        has_text=re.compile(r'sure.*renew|renew.*sure|confirm.*renew', re.I)
+    ).last
+    if box2.count() > 0:
+        for btn in (
+            box2.get_by_role('button', name=re.compile(r'^\s*Yes\s*$', re.I)).first,
+            box2.get_by_role('button', name=re.compile(r'^\s*Confirm\s*$', re.I)).first,
+            box2.locator('input[type="submit"][value*="Yes" i]').first,
+            box2.locator('input[type="button"][value*="Yes" i]').first,
+        ):
+            try:
+                if btn.count() == 0:
+                    continue
+                if btn.is_visible(timeout=2500):
+                    btn.click(timeout=10000, force=True)
+                    break
+            except Exception:
+                continue
+
+    success_re = re.compile(
+        r'renew.*success|renewal.*success|renew\s*pack|pack\s*renew|subscription\s*renew|'
+        r'renewal\s*completed|completed\s+successfully|request\s*submitted',
+        re.I,
+    )
+    if not _hathway_wait_visible_text_match(page, success_re, timeout_ms=90000):
+        raise RuntimeError('Renew completion message not detected (portal wording may differ).')
+
+    page.wait_for_timeout(400)
+    dlg3 = page.locator('[role="dialog"], .ui-dialog, .modal').filter(has_text=success_re).last
+    for okb in (
+        dlg3.get_by_role('button', name=re.compile(r'^\s*OK\s*$', re.I)).first,
+        page.get_by_role('button', name=re.compile(r'^\s*OK\s*$', re.I)).last,
+        page.locator('input[type="button"][value="OK" i]').last,
+        page.locator('input[type="submit"][value="OK" i]').last,
     ):
         try:
             if okb.count() == 0:
@@ -3399,6 +5544,26 @@ def _hathway_remove_pack_via_bouquet_menu(page, cancel_reason):
         return False, 'cancel_missing'
     try:
         _hathway_cancel_pack_modal_chain(page, cancel_reason)
+    except Exception:
+        return False, 'modal'
+    return True, None
+
+
+def _hathway_renew_pack_via_bouquet_menu(page, renew_reason=None):
+    """
+    Bouquet row ▼ → RENEW → renew modal chain.
+
+    Returns (True, None) on success, or (False, err_key) where err_key is one of:
+    ``no_dropdown``, ``menu_missing``, ``renew_missing``, ``modal``.
+    """
+    if not _hathway_click_bouquet_action_dropdown(page):
+        return False, 'no_dropdown'
+    if not _hathway_click_bouquet_menu_renew(page):
+        if not _hathway_bouquet_row_menu_visible(page):
+            return False, 'menu_missing'
+        return False, 'renew_missing'
+    try:
+        _hathway_renew_pack_modal_chain(page, renew_reason=renew_reason)
     except Exception:
         return False, 'modal'
     return True, None
@@ -3899,6 +6064,119 @@ def hathway_remove_pack_and_terminate_stb(page, stb_id, cancel_reason=None, term
         return {'success': False, 'error': str(e), 'provider': 'hathway', 'search_value': stb_id}
 
 
+def hathway_renew_stb_pack(page, stb_id, renew_reason=None):
+    """
+    Pack Management → **Main TV** or **Customer Details** → **Quick Recharge** → Plan Details **submit**
+    → **Confirmation** → **Confirm** → **OK**.
+
+    Alternative to the Manage Expired Plans / bouquet ▼ flow when operators use Quick Recharge.
+
+    ``renew_reason`` is unused here (kept for API compatibility).
+    """
+    stb_id = (stb_id or '').strip()
+    if not stb_id:
+        return {'success': False, 'error': 'Empty STB / VC id', 'provider': 'hathway', 'search_value': ''}
+
+    try:
+        cleanup_hathway_ui(page)
+        _hathway_click_vc_mac_search_mode(page)
+        page.wait_for_timeout(300)
+
+        _hathway_fill_pack_search(page, stb_id)
+        _hathway_click_search(page)
+        try:
+            page.wait_for_load_state('networkidle', timeout=20000)
+        except Exception:
+            page.wait_for_load_state('domcontentloaded', timeout=15000)
+        page.wait_for_timeout(1200)
+        cleanup_hathway_ui(page)
+
+        body = page.locator('body').inner_text(timeout=15000)
+        portal_msg = _hathway_search_portal_user_message(body)
+        if portal_msg:
+            return {'success': False, 'error': portal_msg, 'provider': 'hathway', 'search_value': stb_id}
+
+        if re.search(r'no\s+record|not\s+found|invalid|no\s+match', body, re.I):
+            return {
+                'success': False,
+                'error': 'No matching subscriber for this STB / VC id.',
+                'provider': 'hathway',
+                'search_value': stb_id,
+            }
+
+        renew_ok, renew_err = _hathway_renew_via_quick_recharge(page)
+        if not renew_ok:
+            key = renew_err or 'unknown'
+            if key == 'quick_recharge':
+                try:
+                    page.screenshot(path='hathway_renew_no_quick_recharge_btn.png')
+                except Exception:
+                    pass
+                err = (
+                    'Could not find or click Quick Recharge (try Main TV / Customer Details; tile may be div/span).'
+                )
+            elif key == 'plan_submit':
+                try:
+                    page.screenshot(path='hathway_renew_plan_submit_failed.png')
+                except Exception:
+                    pass
+                err = (
+                    'Quick Recharge opened but Plan Details submit was not found or not clickable.'
+                )
+            elif isinstance(key, str) and key.startswith('modal:'):
+                try:
+                    page.screenshot(path='hathway_renew_quick_recharge_modal_failed.png')
+                except Exception:
+                    pass
+                err = f'Confirm / OK modal sequence failed: {key[6:]}'
+            else:
+                try:
+                    page.screenshot(path='hathway_renew_quick_recharge_unknown_failed.png')
+                except Exception:
+                    pass
+                err = f'Renew via Quick Recharge failed ({key}).'
+            return {'success': False, 'error': err, 'provider': 'hathway', 'search_value': stb_id}
+
+        page.wait_for_timeout(800)
+        cleanup_hathway_ui(page)
+        return {
+            'success': True,
+            'provider': 'hathway',
+            'search_value': stb_id,
+            'matched_cid': stb_id,
+            'message': 'Expired plan renew submitted in portal (Quick Recharge flow).',
+        }
+    except Exception as e:
+        try:
+            page.screenshot(path='hathway_renew_error.png')
+        except Exception:
+            pass
+        print(f'⚠️ Hathway renew STB error: {e}')
+        return {'success': False, 'error': str(e), 'provider': 'hathway', 'search_value': stb_id}
+
+
+def check_hathway_renew_stb(stb_id, account_id=None):
+    """Login, Pack Management → Quick Recharge renew flow for STB, close browser."""
+    playwright, browser, page = launch_hathway_browser()
+    try:
+        if not login_hathway(page, account_id=account_id):
+            return {
+                'success': False,
+                'error': 'Hathway login failed — check credentials and CAPTCHA.',
+                'provider': 'hathway',
+                'search_value': stb_id,
+            }
+        return hathway_renew_stb_pack(page, stb_id)
+    except Exception as e:
+        try:
+            page.screenshot(path='hathway_renew_fatal.png')
+        except Exception:
+            pass
+        return {'success': False, 'error': str(e), 'provider': 'hathway', 'search_value': stb_id}
+    finally:
+        close_hathway_browser(playwright, browser)
+
+
 def check_hathway_remove_pack_and_terminate(stb_id, account_id=None):
     """Login, Pack Management, remove active pack (ALL Cancel or bouquet menu) + terminate STB, close browser."""
     playwright, browser, page = launch_hathway_browser()
@@ -4026,6 +6304,57 @@ def audit_hathway_subscriber(page, stb_id):
             pass
         print(f'⚠️ Hathway audit error: {e}')
         return hathway_audit_to_dict({}, stb_id, success=False, error=str(e))
+
+
+def check_hathway_dashboard_stats(account_id=None):
+    """
+    Login → Home.aspx → Dashboard tile → inner **Dashboard** tab → scrape STB counts + Actual Balance.
+    Uses a standalone browser session (closes after); does not use Pack Management.
+    """
+    playwright, browser, page = launch_hathway_browser()
+    try:
+        if not login_hathway(page, account_id=account_id, goto_pack_management=False):
+            return {
+                'success': False,
+                'error': 'Hathway login failed — check credentials and CAPTCHA.',
+                'provider': 'hathway',
+            }
+        if not navigate_to_dashboard_tile(page):
+            try:
+                page.screenshot(path='hathway_dashboard_nav_failed.png')
+            except Exception:
+                pass
+            return {
+                'success': False,
+                'error': 'Could not open Dashboard from Home.aspx.',
+                'provider': 'hathway',
+            }
+        scraped = hathway_scrape_dashboard_stats(page)
+        if (
+            scraped.get('active_stb') is None
+            and scraped.get('inactive_stb') is None
+            and scraped.get('total_stb') is None
+            and scraped.get('actual_balance') is None
+        ):
+            try:
+                page.screenshot(path='hathway_dashboard_scrape_empty.png')
+            except Exception:
+                pass
+            return {
+                'success': False,
+                'error': 'Dashboard page loaded but expected summary text was not found.',
+                'provider': 'hathway',
+                **scraped,
+            }
+        return {'success': True, 'provider': 'hathway', **scraped}
+    except Exception as e:
+        try:
+            page.screenshot(path='hathway_dashboard_error.png')
+        except Exception:
+            pass
+        return {'success': False, 'error': str(e), 'provider': 'hathway'}
+    finally:
+        close_hathway_browser(playwright, browser)
 
 
 def check_hathway_portal(subscriber_id, account_id=None):

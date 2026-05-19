@@ -21,8 +21,10 @@ load_dotenv(os.path.join(ROOT_DIR, '.env'))
 from multi_credentials import get_hathway_credentials, list_hathway_account_ids
 from hathway_portal import (
     audit_hathway_subscriber,
+    check_hathway_dashboard_stats,
     check_hathway_portal,
     check_hathway_remove_pack_and_terminate,
+    check_hathway_renew_stb,
     check_hathway_temp_activate,
     check_hathway_temp_deactivate,
     close_hathway_browser,
@@ -42,6 +44,7 @@ from bot_i18n import (
     reply_markup_language_select,
     reply_markup_portal_keyboard,
     reply_markup_menu_minimal,
+    format_dashboard_stats_for_chat,
     format_help_body,
     msg_with_labels,
     format_audit_result_for_chat,
@@ -103,17 +106,16 @@ def _handle_operator_account_commands(chat_id, t, lower, reply_id):
         if not ids:
             send_message(
                 chat_id,
-                '<b>Hathway accounts</b>: none configured. Set <code>HATHWAY_USER</code> / '
-                '<code>HATHWAY_PASS</code> or <code>HATHWAY_ACCOUNTS_FILE</code> in <code>.env</code>.',
+                '<b>No operator accounts configured.</b> Contact admin.',
                 reply_to_message_id=reply_id,
                 parse_mode='HTML',
             )
             return True
-        lines = ['<b>Hathway operator account ids</b>'] + [f'• <code>{_tg_escape(i)}</code>' for i in ids]
+        lines = ['<b>Account ids</b>'] + [f'• <code>{_tg_escape(i)}</code>' for i in ids]
         lines.append(
-            f'Current for this chat: <code>{_tg_escape(cur)}</code>'
+            f'This chat: <code>{_tg_escape(cur)}</code>'
             if cur
-            else 'Current for this chat: <i>default</i> (see <code>HATHWAY_DEFAULT_ACCOUNT_ID</code> or first row).'
+            else 'This chat: <i>default</i>'
         )
         lines.append('Set: <code>/hath_account YOUR_ID</code>')
         send_message(
@@ -131,8 +133,8 @@ def _handle_operator_account_commands(chat_id, t, lower, reply_id):
             extra = '\n'.join(f'• <code>{_tg_escape(i)}</code>' for i in ids) if ids else '(none)'
             send_message(
                 chat_id,
-                '<b>Usage:</b> <code>/hath_account ID</code>\n'
-                f'Current: <code>{_tg_escape(cur or "")}</code> (empty = default)\n\n{extra}',
+                '<b>/hath_account ID</b>\n'
+                f'This chat: <code>{_tg_escape(cur or "")}</code>\n\n{extra}',
                 reply_to_message_id=reply_id,
                 parse_mode='HTML',
             )
@@ -141,7 +143,7 @@ def _handle_operator_account_commands(chat_id, t, lower, reply_id):
         if len(parts) < 2 or not parts[1].strip():
             send_message(
                 chat_id,
-                '<b>Usage:</b> <code>/hath_account ID</code> — see <code>/hath_accounts</code>.',
+                '<code>/hath_account ID</code> — see <code>/hath_accounts</code>.',
                 reply_to_message_id=reply_id,
                 parse_mode='HTML',
             )
@@ -156,9 +158,12 @@ def _handle_operator_account_commands(chat_id, t, lower, reply_id):
         if had_session:
             close_persistent_session(chat_id)
         _chat_operator_hath[chat_id] = acc
-        msg = f'<b>Hathway operator for this chat:</b> <code>{_tg_escape(acc)}</code>.'
+        msg = f'Operator set: <code>{_tg_escape(acc)}</code>.'
         if had_session:
-            msg += '\n\nPrevious portal session was closed — start <b>Multi</b> again to log in with this account.'
+            multi_lbl = html.escape(lbl(chat_id, 'hathway_multi'))
+            msg += (
+                '\n\nSession was closed — tap <b>' + multi_lbl + '</b> to log in again.'
+            )
         send_message(
             chat_id,
             msg,
@@ -593,6 +598,36 @@ def handle_update(chat_id, text, reply_id):
         return
 
     if (
+        lower == '/hath_dashboard'
+        or lower == '/dashboard'
+        or t == lbl(chat_id, 'hathway_dashboard')
+    ):
+        close_persistent_session(chat_id)
+        set_mode(chat_id, 'idle')
+        log_bot_request(action='hathway_dashboard_stats', identifier='-', chat_id=chat_id)
+        send_message(
+            chat_id,
+            T(chat_id, 'hathway_dashboard_running'),
+            reply_to_message_id=reply_id,
+            reply_markup=reply_markup_for_chat(chat_id),
+        )
+        try:
+            res = check_hathway_dashboard_stats(account_id=_effective_hath_account_id(chat_id))
+            reply_text = format_dashboard_stats_for_chat(chat_id, res)
+        except Exception as exc:
+            reply_text = format_dashboard_stats_for_chat(
+                chat_id, {'success': False, 'error': str(exc)}
+            )
+        send_message(
+            chat_id,
+            reply_text,
+            reply_to_message_id=reply_id,
+            reply_markup=reply_markup_for_chat(chat_id),
+            parse_mode='HTML',
+        )
+        return
+
+    if (
         lower == '/hath_deactivate'
         or lower.startswith('/hath_deactivate ')
         or t == lbl(chat_id, 'hathway_deactivate')
@@ -611,7 +646,13 @@ def handle_update(chat_id, text, reply_id):
             )
             try:
                 result = check_hathway_temp_deactivate(arg, account_id=_effective_hath_account_id(chat_id))
-                reply_text = format_clear_result_for_chat(chat_id, arg, result)
+                reply_text = format_clear_result_for_chat(
+                    chat_id,
+                    arg,
+                    result,
+                    ok_head_key='portal_action_ok_head',
+                    fail_head_key='portal_action_fail_head',
+                )
             except Exception as exc:
                 reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
             send_message(
@@ -651,7 +692,13 @@ def handle_update(chat_id, text, reply_id):
             )
             try:
                 result = check_hathway_temp_activate(arg, account_id=_effective_hath_account_id(chat_id))
-                reply_text = format_clear_result_for_chat(chat_id, arg, result)
+                reply_text = format_clear_result_for_chat(
+                    chat_id,
+                    arg,
+                    result,
+                    ok_head_key='portal_action_ok_head',
+                    fail_head_key='portal_action_fail_head',
+                )
             except Exception as exc:
                 reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
             send_message(
@@ -667,6 +714,52 @@ def handle_update(chat_id, text, reply_id):
         send_message(
             chat_id,
             T(chat_id, 'hathway_activate_wait_prompt'),
+            reply_to_message_id=reply_id,
+            reply_markup=reply_markup_for_chat(chat_id),
+        )
+        return
+
+    if (
+        lower == '/hath_renew'
+        or lower.startswith('/hath_renew ')
+        or t == lbl(chat_id, 'hathway_renew_stb')
+    ):
+        parts = t.split(maxsplit=1)
+        arg = parts[1].strip() if len(parts) > 1 else ''
+        if arg and looks_like_hathway_stb_id(arg):
+            close_persistent_session(chat_id)
+            set_mode(chat_id, 'idle')
+            log_bot_request(action='hathway_renew_stb', identifier=arg, chat_id=chat_id)
+            send_message(
+                chat_id,
+                T(chat_id, 'hathway_renew_running', stb=_tg_escape(arg)),
+                reply_to_message_id=reply_id,
+                reply_markup=reply_markup_for_chat(chat_id),
+            )
+            try:
+                result = check_hathway_renew_stb(arg, account_id=_effective_hath_account_id(chat_id))
+                reply_text = format_clear_result_for_chat(
+                    chat_id,
+                    arg,
+                    result,
+                    ok_head_key='portal_action_ok_head',
+                    fail_head_key='portal_action_fail_head',
+                )
+            except Exception as exc:
+                reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
+            send_message(
+                chat_id,
+                reply_text,
+                reply_to_message_id=reply_id,
+                reply_markup=reply_markup_for_chat(chat_id),
+                parse_mode='HTML',
+            )
+            return
+        close_persistent_session(chat_id)
+        set_mode(chat_id, 'hathway_renew_wait')
+        send_message(
+            chat_id,
+            T(chat_id, 'hathway_renew_wait_prompt'),
             reply_to_message_id=reply_id,
             reply_markup=reply_markup_for_chat(chat_id),
         )
@@ -693,7 +786,13 @@ def handle_update(chat_id, text, reply_id):
                 result = check_hathway_remove_pack_and_terminate(
                     arg, account_id=_effective_hath_account_id(chat_id)
                 )
-                reply_text = format_clear_result_for_chat(chat_id, arg, result)
+                reply_text = format_clear_result_for_chat(
+                    chat_id,
+                    arg,
+                    result,
+                    ok_head_key='portal_action_ok_head',
+                    fail_head_key='portal_action_fail_head',
+                )
             except Exception as exc:
                 reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
             send_message(
@@ -817,7 +916,13 @@ def handle_update(chat_id, text, reply_id):
         )
         try:
             result = check_hathway_temp_deactivate(cid, account_id=_effective_hath_account_id(chat_id))
-            reply_text = format_clear_result_for_chat(chat_id, cid, result)
+            reply_text = format_clear_result_for_chat(
+                chat_id,
+                cid,
+                result,
+                ok_head_key='portal_action_ok_head',
+                fail_head_key='portal_action_fail_head',
+            )
         except Exception as exc:
             reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
         set_mode(chat_id, 'idle')
@@ -848,7 +953,50 @@ def handle_update(chat_id, text, reply_id):
         )
         try:
             result = check_hathway_temp_activate(cid, account_id=_effective_hath_account_id(chat_id))
-            reply_text = format_clear_result_for_chat(chat_id, cid, result)
+            reply_text = format_clear_result_for_chat(
+                chat_id,
+                cid,
+                result,
+                ok_head_key='portal_action_ok_head',
+                fail_head_key='portal_action_fail_head',
+            )
+        except Exception as exc:
+            reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
+        set_mode(chat_id, 'idle')
+        send_message(
+            chat_id,
+            reply_text,
+            reply_to_message_id=reply_id,
+            reply_markup=reply_markup_for_chat(chat_id),
+            parse_mode='HTML',
+        )
+        return
+
+    if mode == 'hathway_renew_wait':
+        if not cid or not looks_like_hathway_stb_id(cid):
+            send_message(
+                chat_id,
+                T(chat_id, 'hathway_renew_need_stb'),
+                reply_to_message_id=reply_id,
+                reply_markup=reply_markup_for_chat(chat_id),
+            )
+            return
+        log_bot_request(action='hathway_renew_stb', identifier=cid, chat_id=chat_id)
+        send_message(
+            chat_id,
+            T(chat_id, 'hathway_renew_running', stb=_tg_escape(cid)),
+            reply_to_message_id=reply_id,
+            reply_markup=reply_markup_for_chat(chat_id),
+        )
+        try:
+            result = check_hathway_renew_stb(cid, account_id=_effective_hath_account_id(chat_id))
+            reply_text = format_clear_result_for_chat(
+                chat_id,
+                cid,
+                result,
+                ok_head_key='portal_action_ok_head',
+                fail_head_key='portal_action_fail_head',
+            )
         except Exception as exc:
             reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
         set_mode(chat_id, 'idle')
@@ -881,7 +1029,13 @@ def handle_update(chat_id, text, reply_id):
             result = check_hathway_remove_pack_and_terminate(
                 cid, account_id=_effective_hath_account_id(chat_id)
             )
-            reply_text = format_clear_result_for_chat(chat_id, cid, result)
+            reply_text = format_clear_result_for_chat(
+                chat_id,
+                cid,
+                result,
+                ok_head_key='portal_action_ok_head',
+                fail_head_key='portal_action_fail_head',
+            )
         except Exception as exc:
             reply_text = T(chat_id, 'clear_error', exc=_tg_escape(exc))
         set_mode(chat_id, 'idle')
