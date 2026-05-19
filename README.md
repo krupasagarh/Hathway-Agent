@@ -1,7 +1,8 @@
 # Hathway Agent
 
-Standalone Telegram bot for **Hathway partners portal** only (multi/single STB audit, temp deactivate/activate, remove pack & terminate). English and Kannada UI.
+Standalone Telegram bot for **Hathway partners portal** only. It tracks the Hathway flows from the **`vk_digital_hub` / `railtel_debugger`** combined bot (`hathway_portal.py`): multi/single STB audit, temp deactivate / activate back, **Quick Recharge renew (expired plan)**, remove pack & terminate. English and Kannada UI.
 
+Keeping this repo in sync with `railtel_debugger/vk_agent/hathway_portal.py` is intentional—copy that file whenever the combined bot’s Hathway automation is improved.
 ## Setup
 
 1. Create a Telegram bot with [@BotFather](https://t.me/BotFather) and copy the token.
